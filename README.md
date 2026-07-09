@@ -49,8 +49,9 @@ Example client configuration (Claude Desktop / Claude Code):
 
 ## Design principles
 
-Dated 2026-07-08. Each claim below is implemented in code and enforced by the
-test suite (`test/`).
+Dated 2026-07-08. Each claim below is implemented in code and verified by the
+test suite where testable (`test/`); design properties cite the implementing
+code.
 
 1. **Configuration values never appear in output.** The access token is read
    only from the environment. Error messages are shaped, size-bounded, and
@@ -60,10 +61,10 @@ test suite (`test/`).
    (`src/index.ts`), so no log line can leak into a tool response.
 3. **Minimal footprint.** v0.1 tools are read-only observations of projects
    and deployments; the server requests nothing beyond what those reads need.
-4. **Stateless by design.** There is no module-level mutable state, and
-   configuration is re-read from the environment on every tool call
-   (`src/tools.ts`, verified in `test/tools.test.ts`), so behavior is
-   identical on long-lived hosts and short-lived workers.
+4. **Stateless by design.** There is no module-level mutable state
+   (`src/tools.ts`, `src/vercel.ts`), and configuration is re-read from the
+   environment on every tool call (verified in `test/tools.test.ts`), so
+   behavior is identical on long-lived hosts and short-lived workers.
 
 ## Roadmap
 
