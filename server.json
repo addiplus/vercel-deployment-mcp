@@ -1,0 +1,34 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.addiplus/vercel-deployment-mcp",
+  "description": "Reference MCP stdio server for observing Vercel projects and deployments.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/addiplus/vercel-deployment-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@addiplus/vercel-deployment-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "VERCEL_TOKEN",
+          "description": "Vercel API access token used to read project and deployment information. Create one at https://vercel.com/account/tokens.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "VERCEL_TEAM_ID",
+          "description": "Optional Vercel team (scope) identifier. Set this when the token belongs to a team so requests target the correct team scope.",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}
