@@ -129,7 +129,8 @@ export function formatToolError(err: unknown, config?: VercelConfig): string {
         : err.status === 429
           ? " Rate limited by the Vercel API — retry after a short wait."
           : "";
-    msg = `Vercel API error (HTTP ${err.status}${err.code ? `, ${err.code}` : ""}): ${err.message}${hint}`;
+    const body = hint && err.message && !/[.!?]$/.test(err.message) ? `${err.message}.` : err.message;
+    msg = `Vercel API error (HTTP ${err.status}${err.code ? `, ${err.code}` : ""}): ${body}${hint}`;
   } else if (err instanceof Error) {
     msg = `Unexpected error: ${err.message}`;
   } else {

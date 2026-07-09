@@ -217,4 +217,12 @@ describe("additional failure paths", () => {
     expect(out).not.toContain(TOKEN);
     expect(out).not.toContain("team_secret_xyz9");
   });
+
+  it("separates the upstream message from an appended hint with a period", () => {
+    const out = formatToolError(new ApiError(401, "forbidden", "Not authorized"), { token: TOKEN });
+    expect(out).toContain("Not authorized. Check");
+    const already = formatToolError(new ApiError(401, "forbidden", "Not authorized."), { token: TOKEN });
+    expect(already).toContain("Not authorized. Check");
+    expect(already).not.toContain("Not authorized.. Check");
+  });
 });
