@@ -1,5 +1,7 @@
 # vercel-deployment-mcp
 
+[![CI](https://github.com/addiplus/vercel-deployment-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/addiplus/vercel-deployment-mcp/actions/workflows/ci.yml)
+
 A reference [Model Context Protocol](https://modelcontextprotocol.io) server for
 observing Vercel projects and deployments over stdio.
 
@@ -20,7 +22,23 @@ short-lived infrastructure.
 
 ## Install
 
+From npm:
+
 ```bash
+npm install @addiplus/vercel-deployment-mcp
+```
+
+Or run it directly without installing:
+
+```bash
+npx @addiplus/vercel-deployment-mcp
+```
+
+From source:
+
+```bash
+git clone https://github.com/addiplus/vercel-deployment-mcp.git
+cd vercel-deployment-mcp
 npm install
 npm run build
 npm test
@@ -39,13 +57,16 @@ Example client configuration (Claude Desktop / Claude Code):
 {
   "mcpServers": {
     "vercel-deployment": {
-      "command": "node",
-      "args": ["/path/to/vercel-deployment-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@addiplus/vercel-deployment-mcp"],
       "env": { "VERCEL_TOKEN": "…" }
     }
   }
 }
 ```
+
+When running from a source checkout, use `"command": "node"` with
+`"args": ["/path/to/vercel-deployment-mcp/dist/index.js"]` instead.
 
 ## Design principles
 
@@ -71,8 +92,9 @@ code.
 - Deployment actions with an explicit out-of-band approval step (exploring the
   patterns discussed in MCP spec issues #2919/#2920 around multi-round tool
   results on stateless transports).
-- Declaring configuration inputs in `server.json` and mapping them cleanly
-  into client configs (spec issue #2963, registry issue #749).
+- Standardizing how `server.json` describes stdio package install manifests
+  and how clients convert them into local configuration files (spec issue
+  #2963, registry issue #749).
 
 ## License
 
