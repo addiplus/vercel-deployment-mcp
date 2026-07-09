@@ -96,3 +96,60 @@ describe("request construction", () => {
     });
   });
 });
+
+describe("size bounds", () => {
+  it("bounds a very long API error message to 400 characters", async () => {
+    const longMessage = "x".repeat(1000);
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ error: { code: "server_error", message: longMessage } }), {
+        status: 500,
+      }),
+    );
+    let caught: unknown;
+    try {
+      await vercelGet({ token: TOKEN }, "/v9/projects", {}, fetchMock as unknown as typeof fetch);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(ApiError);
+    expect((caught as ApiError).message.length).toBeLessThanOrEqual(400);
+    const formatted = formatToolError(caught, { token: TOKEN });
+    expect(formatted.length).toBeLessThanOrEqual(500);
+  });
+
+  it("scrubs the team id from formatToolError, both the API and generic branches", () => {
+    const cfg = { token: TOKEN, teamId: "team_secret_xyz9" };
+    const apiOut = formatToolError(
+      new ApiError(403, "forbidden", "denied for team team_secret_xyz9"),
+      cfg,
+    );
+    expect(apiOut).not.toContain("team_secret_xyz9");
+
+    const genericOut = formatToolError(new Error("boom team_secret_xyz9"), cfg);
+    expect(genericOut).not.toContain("team_secret_xyz9");
+  });
+
+  it("scrubs the team id at vercelGet, alongside the token", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          error: { code: "forbidden", message: `denied for ${TOKEN} in team team_secret_xyz9` },
+        }),
+        { status: 403 },
+      ),
+    );
+    await expect(
+      vercelGet(
+        { token: TOKEN, teamId: "team_secret_xyz9" },
+        "/v9/projects",
+        {},
+        fetchMock as unknown as typeof fetch,
+      ),
+    ).rejects.toSatisfy((e: unknown) => {
+      expect(e).toBeInstanceOf(ApiError);
+      expect((e as ApiError).message).not.toContain(TOKEN);
+      expect((e as ApiError).message).not.toContain("team_secret_xyz9");
+      return true;
+    });
+  });
+});
