@@ -5,7 +5,8 @@
   "version": "0.1.0",
   "repository": {
     "url": "https://github.com/addiplus/vercel-deployment-mcp",
-    "source": "github"
+    "source": "github",
+    "id": "1253261003"
   },
   "packages": [
     {
