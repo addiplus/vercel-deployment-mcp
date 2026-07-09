@@ -73,6 +73,7 @@ export function buildUrl(
 }
 
 const MAX_ERROR_LEN = 400;
+const REQUEST_TIMEOUT_MS = 30_000;
 
 /** Perform an authenticated GET against the Vercel API. */
 export async function vercelGet<T>(
@@ -89,8 +90,12 @@ export async function vercelGet<T>(
         Authorization: `Bearer ${config.token}`,
         "Content-Type": "application/json",
       },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-  } catch {
+  } catch (err) {
+    if ((err as Error | undefined)?.name === "TimeoutError") {
+      throw new ApiError(0, "timeout", "Vercel API request timed out after 30 seconds.");
+    }
     // Deliberately generic: raw network errors can embed request details.
     throw new ApiError(0, "network_error", "Network error reaching the Vercel API.");
   }
