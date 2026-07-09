@@ -1,0 +1,39 @@
+{
+  "name": "@addiplus/vercel-deployment-mcp",
+  "mcpName": "io.github.addiplus/vercel-deployment-mcp",
+  "version": "0.1.0",
+  "description": "Reference MCP server for observing Vercel projects and deployments — a stateless stdio server demonstrating clean configuration and credential handling for deployment workflows.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "vercel-deployment-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/addiplus/vercel-deployment-mcp.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
