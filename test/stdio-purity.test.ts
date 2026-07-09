@@ -90,6 +90,14 @@ describe("stdio purity", () => {
         });
         await waitForId(responses, 3, 20_000, () => stderrBuffer);
 
+        send(child, {
+          jsonrpc: "2.0",
+          id: 4,
+          method: "tools/call",
+          params: { name: "get_project", arguments: {} },
+        });
+        await waitForId(responses, 4, 20_000, () => stderrBuffer);
+
         for (const line of stdoutLines) {
           const parsed = JSON.parse(line);
           expect(parsed.jsonrpc).toBe("2.0");
@@ -103,6 +111,22 @@ describe("stdio purity", () => {
         };
         expect(callResult.result?.isError).toBe(true);
         expect(callResult.result?.content?.[0]?.text).toContain("VERCEL_TOKEN");
+
+        // The SDK reports invalid tool arguments as a normal tool result
+        // (isError: true, text carrying "MCP error -32602: ...") rather than
+        // a top-level JSON-RPC error object — verified against the installed
+        // @modelcontextprotocol/sdk build. Both shapes are still valid
+        // jsonrpc: "2.0" frames, which the purity loop above already covers.
+        const invalidArgsResult = responses.get(4) as {
+          error?: { code?: number };
+          result?: { isError?: boolean; content?: Array<{ type: string; text: string }> };
+        };
+        if (invalidArgsResult.error) {
+          expect(invalidArgsResult.error.code).toBe(-32602);
+        } else {
+          expect(invalidArgsResult.result?.isError).toBe(true);
+          expect(invalidArgsResult.result?.content?.[0]?.text).toContain("-32602");
+        }
 
         expect(stderrBuffer).toContain("vercel-deployment-mcp ready (stdio)");
         expect(stdoutLines.some((line) => line.includes("ready (stdio)"))).toBe(false);

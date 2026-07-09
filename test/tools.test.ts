@@ -246,10 +246,16 @@ describe("default limit", () => {
 
 describe("error path shape", () => {
   it("surfaces a bounded, scrubbed error for HTTP failures", async () => {
+    process.env.VERCEL_TEAM_ID = "team_secret_xyz9";
     const tools = getTools();
     const fetchMock = vi.fn(async () =>
       new Response(
-        JSON.stringify({ error: { code: "forbidden", message: `denied for ${TOKEN}` } }),
+        JSON.stringify({
+          error: {
+            code: "forbidden",
+            message: `denied for ${TOKEN} in team team_secret_xyz9`,
+          },
+        }),
         { status: 403 },
       ),
     );
@@ -261,6 +267,98 @@ describe("error path shape", () => {
     expect(result.content[0].text).toContain("HTTP 403");
     expect(result.content[0].text).toContain("credential");
     expect(result.content[0].text).not.toContain(TOKEN);
+    expect(result.content[0].text).not.toContain("team_secret_xyz9");
+  });
+});
+
+describe("concurrency isolation", () => {
+  it("keeps concurrent list_projects calls from crossing results", async () => {
+    const tools = getTools();
+    const fetchMock = vi.fn(async (url: RequestInfo | URL) => {
+      const s = String(url);
+      if (s.includes("search=alpha")) {
+        return new Response(JSON.stringify({ projects: [{ id: "a1", name: "alpha" }] }), {
+          status: 200,
+        });
+      }
+      if (s.includes("search=beta")) {
+        return new Response(JSON.stringify({ projects: [{ id: "b1", name: "beta" }] }), {
+          status: 200,
+        });
+      }
+      throw new Error(`unexpected request: ${s}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const handler = tools.get("list_projects")!.handler;
+    const [alphaResult, betaResult] = await Promise.all([
+      handler({ search: "alpha" }),
+      handler({ search: "beta" }),
+    ]);
+    const alphaParsed = JSON.parse(alphaResult.content[0].text);
+    const betaParsed = JSON.parse(betaResult.content[0].text);
+    expect(alphaParsed.projects).toEqual([{ id: "a1", name: "alpha", framework: null }]);
+    expect(betaParsed.projects).toEqual([{ id: "b1", name: "beta", framework: null }]);
+  });
+});
+
+describe("URL path encoding", () => {
+  it("percent-encodes idOrName and idOrUrl path segments", async () => {
+    const tools = getTools();
+
+    let projectUrl = "";
+    const projectFetch = vi.fn(async (url: RequestInfo | URL) => {
+      projectUrl = String(url);
+      return new Response(JSON.stringify({ id: "prj_1", name: "demo" }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", projectFetch);
+    await tools.get("get_project")!.handler({ idOrName: "my proj/x" });
+    expect(projectUrl).toContain("/v9/projects/my%20proj%2Fx");
+
+    let deploymentUrl = "";
+    const deploymentFetch = vi.fn(async (url: RequestInfo | URL) => {
+      deploymentUrl = String(url);
+      return new Response(JSON.stringify({ id: "dpl_1", name: "app" }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", deploymentFetch);
+    await tools.get("get_deployment")!.handler({ idOrUrl: "dpl/one two" });
+    expect(deploymentUrl).toContain("/v13/deployments/dpl%2Fone%20two");
+  });
+});
+
+describe("state fallback", () => {
+  it("falls back to readyState when state is absent", async () => {
+    const tools = getTools();
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          uid: "dpl_1",
+          name: "app",
+          url: "app.vercel.app",
+          readyState: "READY",
+          target: "production",
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await tools.get("get_deployment")!.handler({ idOrUrl: "dpl_1" });
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.state).toBe("READY");
+  });
+});
+
+describe("compact JSON format", () => {
+  it("round-trips the returned text through JSON.stringify(…, null, 2)", async () => {
+    const tools = getTools();
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ projects: [{ id: "prj_1", name: "demo" }] }), {
+        status: 200,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await tools.get("list_projects")!.handler({});
+    const text = result.content[0].text;
+    expect(text).toBe(JSON.stringify(JSON.parse(text), null, 2));
   });
 });
 

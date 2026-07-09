@@ -153,3 +153,68 @@ describe("size bounds", () => {
     });
   });
 });
+
+describe("additional failure paths", () => {
+  it("rate-limited errors add a retry hint, still without values", () => {
+    const out = formatToolError(new ApiError(429, "rate_limited", "slow down"), { token: TOKEN });
+    expect(out).toContain("Rate limited");
+    expect(out).toContain("retry");
+    expect(out).not.toContain(TOKEN);
+  });
+
+  it("network rejections become a generic ApiError, discarding the raw error", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error("socket hang up: " + TOKEN);
+    });
+    await expect(
+      vercelGet({ token: TOKEN }, "/v9/projects", {}, fetchMock as unknown as typeof fetch),
+    ).rejects.toSatisfy((e: unknown) => {
+      expect(e).toBeInstanceOf(ApiError);
+      expect((e as ApiError).code).toBe("network_error");
+      expect((e as ApiError).message).toBe("Network error reaching the Vercel API.");
+      return true;
+    });
+  });
+
+  it("timeouts are shaped into a dedicated ApiError", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new DOMException("The operation timed out.", "TimeoutError");
+    });
+    await expect(
+      vercelGet({ token: TOKEN }, "/v9/projects", {}, fetchMock as unknown as typeof fetch),
+    ).rejects.toSatisfy((e: unknown) => {
+      expect(e).toBeInstanceOf(ApiError);
+      expect((e as ApiError).code).toBe("timeout");
+      expect((e as ApiError).message).toContain("timed out");
+      return true;
+    });
+  });
+
+  it("wires an AbortSignal timeout into every request", async () => {
+    let capturedInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      capturedInit = init;
+      return new Response(JSON.stringify({ projects: [] }), { status: 200 });
+    });
+    await vercelGet({ token: TOKEN }, "/v9/projects", {}, fetchMock as unknown as typeof fetch);
+    expect(capturedInit?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("non-JSON error bodies fall back to the generic HTTP status message", async () => {
+    const fetchMock = vi.fn(async () => new Response("<html>oops</html>", { status: 500 }));
+    await expect(
+      vercelGet({ token: TOKEN }, "/v9/projects", {}, fetchMock as unknown as typeof fetch),
+    ).rejects.toSatisfy((e: unknown) => {
+      expect(e).toBeInstanceOf(ApiError);
+      expect((e as ApiError).message).toBe("Vercel API responded with HTTP 500.");
+      return true;
+    });
+  });
+
+  it("non-Error throws hit the hardcoded fallback message, leaking nothing", () => {
+    const out = formatToolError("raw string throw", { token: TOKEN, teamId: "team_secret_xyz9" });
+    expect(out).toBe("Unexpected error.");
+    expect(out).not.toContain(TOKEN);
+    expect(out).not.toContain("team_secret_xyz9");
+  });
+});
