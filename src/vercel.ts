@@ -1,8 +1,8 @@
 /**
  * Vercel REST API client with strict configuration hygiene.
  *
- * Design principles (verified in test/vercel.test.ts):
- *  - Credential values are read once from the environment and never echoed:
+ * Design principles (verified in test/):
+ *  - Credential values are read only from the environment and never echoed:
  *    not in errors, not in logs, not in tool responses.
  *  - stdout belongs to the MCP protocol; diagnostics go to stderr only.
  *  - Errors surfaced to the client are shaped and size-bounded.
@@ -105,7 +105,7 @@ export async function vercelGet<T>(
     } catch {
       /* non-JSON body — keep the generic message */
     }
-    const safe = redactValues(message, [config.token]).slice(0, MAX_ERROR_LEN);
+    const safe = redactValues(message, [config.token, config.teamId]).slice(0, MAX_ERROR_LEN);
     throw new ApiError(res.status, code, safe);
   }
 
