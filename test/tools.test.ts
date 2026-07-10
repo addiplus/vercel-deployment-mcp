@@ -13,6 +13,7 @@ type ToolHandler = (args: Record<string, unknown>) => Promise<{
 
 interface ToolMeta {
   inputSchema: z.ZodRawShape;
+  outputSchema: z.ZodType;
 }
 
 interface RegisteredTool {
@@ -65,6 +66,29 @@ describe("tool registration", () => {
       new Set(["list_projects", "get_project", "list_deployments", "get_deployment"]),
     );
     expect(names.length).toBe(4);
+  });
+
+  it("validates deployment receipt filters as an order-independent set", () => {
+    const schema = getTools().get("list_deployments")!.meta.outputSchema;
+    const resultWith = (appliedFilters: string[]) => ({
+      pageCount: 0,
+      items: [],
+      receipt: {
+        scopeKind: "personal",
+        appliedFilters,
+        endpointProfile: "vercel-read-v1",
+      },
+    });
+
+    const validFilters = [
+      [], ["projectId"], ["state"], ["projectId", "state"], ["state", "projectId"],
+    ];
+    for (const filters of validFilters) {
+      expect(schema.safeParse(resultWith(filters)).success).toBe(true);
+    }
+    for (const filters of [["projectId", "projectId"], ["state", "state"], ["other"]]) {
+      expect(schema.safeParse(resultWith(filters)).success).toBe(false);
+    }
   });
 });
 
@@ -498,6 +522,18 @@ describe("unexpected 2xx response shapes", () => {
     expect(result.content[0].text).not.toContain(TOKEN);
   });
 
+  it("list_deployments rejects non-object deployment entries", async () => {
+    const tools = getTools();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ deployments: [42] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await tools.get("list_deployments")!.handler({});
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("unexpected response shape");
+    expect(result.content[0].text).not.toContain(TOKEN);
+  });
+
   it("get_project errors when the body is missing a string id or name", async () => {
     const tools = getTools();
     const fetchMock = vi.fn(
@@ -519,15 +555,18 @@ describe("unexpected 2xx response shapes", () => {
     expect(result.content[0].text).toContain("unexpected response shape");
   });
 
-  it("get_deployment errors when neither uid nor id is a string", async () => {
+  it("get_deployment returns a partial result when neither uid nor id is present", async () => {
     const tools = getTools();
     const fetchMock = vi.fn(
       async () => new Response(JSON.stringify({ name: "app", url: "app.vercel.app" }), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
     const result = await tools.get("get_deployment")!.handler({ idOrUrl: "dpl_1" });
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("unexpected response shape");
-    expect(result.content[0].text).not.toContain(TOKEN);
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toEqual({
+      item: { name: "app", url: "app.vercel.app", target: null },
+      receipt: { scopeKind: "personal", appliedFilters: [], endpointProfile: "vercel-read-v1" },
+    });
+    expect(JSON.parse(result.content[0].text)).toEqual(result.structuredContent);
   });
 });

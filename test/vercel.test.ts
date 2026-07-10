@@ -404,11 +404,17 @@ describe("shape guards for otherwise-parsed 2xx bodies", () => {
     expect(() => assertProjectShape("prj_1")).toThrowError(ApiError);
   });
 
-  it("assertDeploymentShape accepts either uid or id as the string identifier", () => {
+  it("assertDeploymentShape accepts an object with or without a string identifier", () => {
     expect(() => assertDeploymentShape({ uid: "dpl_1" })).not.toThrow();
     expect(() => assertDeploymentShape({ id: "dpl_1" })).not.toThrow();
-    expect(() => assertDeploymentShape({ name: "app" })).toThrowError(ApiError);
+    expect(() => assertDeploymentShape({ name: "app" })).not.toThrow();
+    expect(() => assertDeploymentShape({ uid: 42, id: "dpl_1" })).toThrowError(ApiError);
+    expect(() => assertDeploymentShape({ id: 42 })).toThrowError(ApiError);
+    expect(() => assertDeploymentShape({ uid: null })).toThrowError(ApiError);
+    expect(() => assertDeploymentShape({ uid: "dpl_1", id: 42 })).toThrowError(ApiError);
     expect(() => assertDeploymentShape(null)).toThrowError(ApiError);
+    expect(() => assertDeploymentShape([])).toThrowError(ApiError);
+    expect(() => assertDeploymentShape("dpl_1")).toThrowError(ApiError);
   });
 });
 

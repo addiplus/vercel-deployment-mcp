@@ -34,7 +34,7 @@ const ProjectResultSchema = z.strictObject({
 });
 
 const DeploymentResultSchema = z.strictObject({
-  id: z.string(),
+  id: z.string().optional(),
   name: z.string().optional(),
   url: z.string().optional(),
   state: z.string().optional(),
@@ -54,15 +54,11 @@ const NoFiltersSchema = z.array(z.never()).max(0);
 const ItemReceiptSchema = receiptSchema(NoFiltersSchema);
 const ProjectListReceiptSchema = receiptSchema(z.array(z.literal("search")).max(1));
 const DeploymentListReceiptSchema = receiptSchema(
-  z.union([
-    NoFiltersSchema,
-    z.array(z.literal("projectId")).length(1),
-    z.array(z.literal("state")).length(1),
-    z.intersection(
-      z.tuple([z.literal("projectId"), z.literal("state")]),
-      z.array(z.enum(["projectId", "state"])).length(2),
-    ),
-  ]),
+  z
+    .array(z.enum(["projectId", "state"]))
+    .max(2)
+    .refine((filters) => new Set(filters).size === filters.length)
+    .meta({ uniqueItems: true }),
 );
 
 function pageOutputSchema(item: z.ZodType, receipt: z.ZodType) {
@@ -240,14 +236,17 @@ export function registerTools(server: McpServer): void {
           },
         );
         assertArrayField(data, "deployments");
-        const deployments = (data.deployments ?? []).map((d) => ({
-          id: d.uid ?? d.id,
-          name: d.name,
-          url: d.url,
-          state: d.state ?? d.readyState,
-          target: d.target ?? null,
-          createdAt: d.createdAt ? new Date(d.createdAt).toISOString() : undefined,
-        }));
+        const deployments = (data.deployments ?? []).map((d) => {
+          assertDeploymentShape(d);
+          return {
+            id: d.uid ?? d.id,
+            name: d.name,
+            url: d.url,
+            state: d.state ?? d.readyState,
+            target: d.target ?? null,
+            createdAt: d.createdAt ? new Date(d.createdAt).toISOString() : undefined,
+          };
+        });
         return asStructured({
           pageCount: deployments.length,
           items: deployments,
