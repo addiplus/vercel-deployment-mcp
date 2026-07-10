@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 
 function send(child: ChildProcessWithoutNullStreams, msg: unknown): void {
@@ -27,22 +28,39 @@ function waitForId(
 
 describe("stdio purity", () => {
   it(
-    "keeps stdout limited to JSON-RPC frames and routes diagnostics to stderr",
+    "keeps stdio pure and enforces structured output contracts",
     async () => {
-      const env = { ...process.env };
-      delete env.VERCEL_TOKEN;
-      delete env.VERCEL_TEAM_ID;
-
-      const child = spawn(process.execPath, ["dist/index.js"], {
-        env,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+      const token = "vc_wire_token_canary";
+      const teamId = "team_wire_canary";
+      const env = { ...process.env, VERCEL_TOKEN: token, VERCEL_TEAM_ID: teamId };
+      delete env.NODE_OPTIONS;
+      const fetchPreload = [
+        "globalThis.fetch = async (input, init = {}) => {",
+        "  const url = new URL(String(input));",
+        "  if (url.origin !== 'https://api.vercel.com') throw new Error('unexpected origin');",
+        "  if ((init.method ?? 'GET') !== 'GET' || init.body !== undefined) throw new Error('unexpected request');",
+        "  let body;",
+        "  switch (url.pathname) {",
+        "    case '/v9/projects': body = { projects: [{ id: 'prj_1', name: 'demo' }] }; break;",
+        "    case '/v9/projects/prj_wire': body = { id: 'prj_wire', name: 'demo' }; break;",
+        "    case '/v9/projects/forbidden': return new Response(JSON.stringify({ error: { code: 'forbidden', message: 'denied' } }), { status: 403 });",
+        "    case '/v6/deployments': body = { deployments: [{ uid: 'dpl_1', name: 'app' }] }; break;",
+        "    case '/v13/deployments/dpl_wire': body = { uid: 'dpl_wire', name: 'app', readyState: 'READY' }; break;",
+        "    default: throw new Error('unexpected path: ' + url.pathname);",
+        "  }",
+        "  return new Response(JSON.stringify(body), { status: 200 });",
+        "};",
+      ].join("\n");
+      const child = spawn(
+        process.execPath,
+        ["--import", `data:text/javascript,${encodeURIComponent(fetchPreload)}`, "dist/index.js"],
+        { env, stdio: ["pipe", "pipe", "pipe"] },
+      );
 
       const stdoutLines: string[] = [];
+      const responses = new Map<number, unknown>();
       let stdoutBuffer = "";
       let stderrBuffer = "";
-      const responses = new Map<number, unknown>();
-
       child.stdout.on("data", (chunk: Buffer) => {
         stdoutBuffer += chunk.toString("utf8");
         let idx: number;
@@ -55,11 +73,10 @@ describe("stdio purity", () => {
             const parsed = JSON.parse(line) as { id?: number };
             if (parsed.id !== undefined) responses.set(parsed.id, parsed);
           } catch {
-            // left in stdoutLines verbatim so the purity assertion below can catch it
+            // Retain non-JSON output so the purity assertion can report it.
           }
         }
       });
-
       child.stderr.on("data", (chunk: Buffer) => {
         stderrBuffer += chunk.toString("utf8");
       });
@@ -72,62 +89,126 @@ describe("stdio purity", () => {
           params: {
             protocolVersion: "2025-06-18",
             capabilities: {},
-            clientInfo: { name: "purity-test", version: "0.0.0" },
+            clientInfo: { name: "contract-test", version: "0.0.0" },
           },
         });
         await waitForId(responses, 1, 20_000, () => stderrBuffer);
-
         send(child, { jsonrpc: "2.0", method: "notifications/initialized" });
-
         send(child, { jsonrpc: "2.0", id: 2, method: "tools/list" });
         await waitForId(responses, 2, 20_000, () => stderrBuffer);
 
-        send(child, {
-          jsonrpc: "2.0",
-          id: 3,
-          method: "tools/call",
-          params: { name: "list_projects", arguments: {} },
+        type Schema = {
+          type?: string;
+          properties?: Record<string, unknown>;
+          required?: string[];
+          additionalProperties?: boolean;
+        };
+        type Tool = {
+          name: string;
+          annotations?: Record<string, boolean>;
+          outputSchema?: Schema;
+        };
+        const tools = ((responses.get(2) as { result?: { tools?: Tool[] } }).result?.tools ?? []);
+        const properties: Record<string, string[]> = {
+          list_projects: ["items", "pageCount", "receipt"],
+          get_project: ["item", "receipt"],
+          list_deployments: ["items", "pageCount", "receipt"],
+          get_deployment: ["item", "receipt"],
+        };
+        expect(tools.map(({ name }) => name).sort()).toEqual(Object.keys(properties).sort());
+
+        const ajv = new Ajv({ strict: false });
+        for (const tool of tools) {
+          expect(tool.annotations).toEqual({
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: true,
+          });
+          const schema = tool.outputSchema!;
+          expect(schema).toMatchObject({ type: "object", additionalProperties: false });
+          expect(Object.keys(schema.properties ?? {}).sort()).toEqual(properties[tool.name].sort());
+          expect(schema.required?.slice().sort()).toEqual(properties[tool.name].sort());
+          expect(ajv.validateSchema(schema), JSON.stringify(ajv.errors)).toBe(true);
+        }
+
+        const receipt = (...appliedFilters: string[]) => ({
+          scopeKind: "team",
+          appliedFilters,
+          endpointProfile: "vercel-read-v1",
         });
-        await waitForId(responses, 3, 20_000, () => stderrBuffer);
+        const cases = [
+          ["list_projects", { search: "demo" }, { pageCount: 1, items: [{ id: "prj_1", name: "demo", framework: null }], receipt: receipt("search") }],
+          ["get_project", { idOrName: "prj_wire" }, { item: { id: "prj_wire", name: "demo", framework: null }, receipt: receipt() }],
+          ["list_deployments", { projectId: "prj_wire", state: "READY" }, { pageCount: 1, items: [{ id: "dpl_1", name: "app", target: null }], receipt: receipt("projectId", "state") }],
+          ["get_deployment", { idOrUrl: "dpl_wire" }, { item: { id: "dpl_wire", name: "app", state: "READY", target: null }, receipt: receipt() }],
+        ] as const;
+        const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
+        const invalidFilters: Record<string, string[]> = {
+          list_projects: ["projectId"],
+          get_project: ["state"],
+          list_deployments: ["projectId", "projectId"],
+          get_deployment: ["search"],
+        };
+
+        for (const [index, [name, args, expected]] of cases.entries()) {
+          const id = index + 3;
+          send(child, { jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+          await waitForId(responses, id, 20_000, () => stderrBuffer);
+          const frame = responses.get(id) as {
+            error?: unknown;
+            result?: {
+              isError?: boolean;
+              content?: Array<{ type: string; text?: string }>;
+              structuredContent?: Record<string, unknown>;
+            };
+          };
+          expect(frame.error).toBeUndefined();
+          expect(frame.result?.isError, frame.result?.content?.[0]?.text).not.toBe(true);
+          const structured = frame.result?.structuredContent;
+          expect(structured).toEqual(expected);
+          expect(JSON.parse(frame.result?.content?.[0]?.text ?? "")).toEqual(structured);
+          const validate = ajv.compile(toolsByName.get(name)!.outputSchema!);
+          expect(validate(structured), JSON.stringify(validate.errors)).toBe(true);
+          const invalidReceipt = JSON.parse(JSON.stringify(structured)) as {
+            receipt: { appliedFilters: string[] };
+          };
+          invalidReceipt.receipt.appliedFilters = invalidFilters[name];
+          expect(validate(invalidReceipt), `${name}: ${JSON.stringify(validate.errors)}`).toBe(false);
+          expect(JSON.stringify(frame.result)).not.toMatch(new RegExp(`${token}|${teamId}`));
+          if ("pageCount" in expected) {
+            expect(structured).not.toHaveProperty("hasMore");
+            expect(structured).not.toHaveProperty("nextCursor");
+          }
+        }
+
+        send(child, { jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "get_project", arguments: { idOrName: "forbidden" } } });
+        await waitForId(responses, 7, 20_000, () => stderrBuffer);
+        const toolError = responses.get(7) as { error?: unknown; result?: { isError?: boolean; content?: unknown[]; structuredContent?: unknown } };
+        expect([toolError.error, toolError.result?.isError]).toEqual([undefined, true]);
+        expect(toolError.result?.content).toEqual([expect.objectContaining({ type: "text", text: expect.any(String) })]);
+        expect(toolError.result?.structuredContent).toBeUndefined();
+        expect(JSON.stringify(toolError)).not.toMatch(new RegExp(`${token}|${teamId}`));
 
         send(child, {
           jsonrpc: "2.0",
-          id: 4,
+          id: 8,
           method: "tools/call",
           params: { name: "get_project", arguments: {} },
         });
-        await waitForId(responses, 4, 20_000, () => stderrBuffer);
-
-        for (const line of stdoutLines) {
-          const parsed = JSON.parse(line);
-          expect(parsed.jsonrpc).toBe("2.0");
-        }
-
-        const listResult = responses.get(2) as { result?: { tools?: unknown[] } };
-        expect(listResult.result?.tools).toHaveLength(4);
-
-        const callResult = responses.get(3) as {
-          result?: { isError?: boolean; content?: Array<{ type: string; text: string }> };
-        };
-        expect(callResult.result?.isError).toBe(true);
-        expect(callResult.result?.content?.[0]?.text).toContain("VERCEL_TOKEN");
-
-        // The SDK reports invalid tool arguments as a normal tool result
-        // (isError: true, text carrying "MCP error -32602: ...") rather than
-        // a top-level JSON-RPC error object — verified against the installed
-        // @modelcontextprotocol/sdk build. Both shapes are still valid
-        // jsonrpc: "2.0" frames, which the purity loop above already covers.
-        const invalidArgsResult = responses.get(4) as {
+        await waitForId(responses, 8, 20_000, () => stderrBuffer);
+        const invalid = responses.get(8) as {
           error?: { code?: number };
-          result?: { isError?: boolean; content?: Array<{ type: string; text: string }> };
+          result?: { isError?: boolean; content?: Array<{ text?: string }> };
         };
-        if (invalidArgsResult.error) {
-          expect(invalidArgsResult.error.code).toBe(-32602);
+        if (invalid.error) {
+          expect(invalid.error.code).toBe(-32602);
         } else {
-          expect(invalidArgsResult.result?.isError).toBe(true);
-          expect(invalidArgsResult.result?.content?.[0]?.text).toContain("-32602");
+          expect(invalid.result?.isError).toBe(true);
+          expect(invalid.result?.content?.[0]?.text).toContain("-32602");
         }
 
+        for (const line of stdoutLines) expect(JSON.parse(line).jsonrpc).toBe("2.0");
         expect(stderrBuffer).toContain("vercel-deployment-mcp ready (stdio)");
         expect(stdoutLines.some((line) => line.includes("ready (stdio)"))).toBe(false);
       } finally {

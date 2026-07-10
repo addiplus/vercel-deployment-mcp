@@ -6,6 +6,7 @@ const TOKEN = "vc_test_token_a1b2c3d4e5";
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<{
   content: Array<{ type: "text"; text: string }>;
+  structuredContent?: Record<string, unknown>;
   isError?: boolean;
 }>;
 
@@ -131,8 +132,8 @@ describe("projection-only responses", () => {
     vi.stubGlobal("fetch", fetchMock);
     const result = await tools.get("list_projects")!.handler({});
     const parsed = JSON.parse(result.content[0].text);
-    expect(Object.keys(parsed).sort()).toEqual(["count", "projects"]);
-    const row = parsed.projects[0];
+    expect(Object.keys(parsed).sort()).toEqual(["items", "pageCount", "receipt"]);
+    const row = parsed.items[0];
     expect(Object.keys(row).sort()).toEqual(["framework", "id", "name", "updatedAt"]);
     expect(row.env).toBeUndefined();
     expect(row.accountId).toBeUndefined();
@@ -163,8 +164,8 @@ describe("projection-only responses", () => {
     vi.stubGlobal("fetch", fetchMock);
     const result = await tools.get("list_deployments")!.handler({});
     const parsed = JSON.parse(result.content[0].text);
-    expect(Object.keys(parsed).sort()).toEqual(["count", "deployments"]);
-    const row = parsed.deployments[0];
+    expect(Object.keys(parsed).sort()).toEqual(["items", "pageCount", "receipt"]);
+    const row = parsed.items[0];
     expect(Object.keys(row).sort()).toEqual(["createdAt", "id", "name", "state", "target", "url"]);
     expect(row.creator).toBeUndefined();
     expect(row.alias).toBeUndefined();
@@ -188,9 +189,10 @@ describe("projection-only responses", () => {
     vi.stubGlobal("fetch", fetchMock);
     const result = await tools.get("get_project")!.handler({ idOrName: "prj_1" });
     const parsed = JSON.parse(result.content[0].text);
-    expect(Object.keys(parsed).sort()).toEqual(["framework", "id", "name", "updatedAt"]);
-    expect(parsed.env).toBeUndefined();
-    expect(parsed.accountId).toBeUndefined();
+    expect(Object.keys(parsed).sort()).toEqual(["item", "receipt"]);
+    expect(Object.keys(parsed.item).sort()).toEqual(["framework", "id", "name", "updatedAt"]);
+    expect(parsed.item.env).toBeUndefined();
+    expect(parsed.item.accountId).toBeUndefined();
   });
 
   it("get_deployment drops fields outside the documented projection", async () => {
@@ -213,8 +215,11 @@ describe("projection-only responses", () => {
     vi.stubGlobal("fetch", fetchMock);
     const result = await tools.get("get_deployment")!.handler({ idOrUrl: "dpl_1" });
     const parsed = JSON.parse(result.content[0].text);
-    expect(Object.keys(parsed).sort()).toEqual(["createdAt", "id", "name", "state", "target", "url"]);
-    expect(parsed.creator).toBeUndefined();
+    expect(Object.keys(parsed).sort()).toEqual(["item", "receipt"]);
+    expect(Object.keys(parsed.item).sort()).toEqual([
+      "createdAt", "id", "name", "state", "target", "url",
+    ]);
+    expect(parsed.item.creator).toBeUndefined();
   });
 });
 
@@ -262,6 +267,7 @@ describe("error path shape", () => {
     vi.stubGlobal("fetch", fetchMock);
     const result = await tools.get("list_projects")!.handler({});
     expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
     expect(result.content).toHaveLength(1);
     expect(result.content[0].type).toBe("text");
     expect(result.content[0].text).toContain("HTTP 403");
@@ -296,8 +302,8 @@ describe("concurrency isolation", () => {
     ]);
     const alphaParsed = JSON.parse(alphaResult.content[0].text);
     const betaParsed = JSON.parse(betaResult.content[0].text);
-    expect(alphaParsed.projects).toEqual([{ id: "a1", name: "alpha", framework: null }]);
-    expect(betaParsed.projects).toEqual([{ id: "b1", name: "beta", framework: null }]);
+    expect(alphaParsed.items).toEqual([{ id: "a1", name: "alpha", framework: null }]);
+    expect(betaParsed.items).toEqual([{ id: "b1", name: "beta", framework: null }]);
   });
 });
 
@@ -343,7 +349,7 @@ describe("state fallback", () => {
     vi.stubGlobal("fetch", fetchMock);
     const result = await tools.get("get_deployment")!.handler({ idOrUrl: "dpl_1" });
     const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.state).toBe("READY");
+    expect(parsed.item.state).toBe("READY");
   });
 });
 
@@ -359,6 +365,7 @@ describe("compact JSON format", () => {
     const result = await tools.get("list_projects")!.handler({});
     const text = result.content[0].text;
     expect(text).toBe(JSON.stringify(JSON.parse(text), null, 2));
+    expect(JSON.parse(text)).toEqual(result.structuredContent);
   });
 });
 
