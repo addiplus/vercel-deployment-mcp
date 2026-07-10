@@ -1,7 +1,7 @@
 {
   "name": "@addiplus/vercel-deployment-mcp",
   "mcpName": "io.github.addiplus/vercel-deployment-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Reference MCP server for observing Vercel projects and deployments — a stateless stdio server demonstrating clean configuration and credential handling for deployment workflows.",
   "type": "module",
   "license": "MIT",
