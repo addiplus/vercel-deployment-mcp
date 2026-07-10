@@ -1,7 +1,15 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { formatToolError, getConfig, vercelGet, type VercelConfig } from "./vercel.js";
+import {
+  assertArrayField,
+  assertDeploymentShape,
+  assertProjectShape,
+  formatToolError,
+  getConfig,
+  vercelGet,
+  type VercelConfig,
+} from "./vercel.js";
 
 const ENDPOINT_PROFILE = "vercel-read-v1";
 const ENDPOINTS = {
@@ -137,7 +145,9 @@ export function registerTools(server: McpServer): void {
       description:
         "List projects visible to the configured account or team. Optional text search and result limit.",
       inputSchema: {
-        search: z.string().optional().describe("Filter projects by name"),
+        // A blank string previously fell through isApplied() as "filter not applied",
+        // silently widening scope. Reject it at the schema boundary instead.
+        search: z.string().min(1).optional().describe("Filter projects by name"),
         limit: z.number().int().min(1).max(100).optional().describe("Max results (default 20)"),
       },
       outputSchema: ListProjectsOutputSchema,
@@ -150,6 +160,7 @@ export function registerTools(server: McpServer): void {
           search,
           limit: limit ?? 20,
         });
+        assertArrayField(data, "projects");
         const projects = (data.projects ?? []).map((p) => ({
           id: p.id,
           name: p.name,
@@ -185,6 +196,7 @@ export function registerTools(server: McpServer): void {
           config,
           `${ENDPOINTS.getProject}${encodeURIComponent(idOrName)}`,
         );
+        assertProjectShape(p);
         return asStructured({
           item: {
             id: p.id,
@@ -207,8 +219,9 @@ export function registerTools(server: McpServer): void {
       description:
         "List recent deployments, optionally filtered by project ID and state (e.g. BUILDING, ERROR, READY).",
       inputSchema: {
-        projectId: z.string().optional().describe("Limit to one project"),
-        state: z.string().optional().describe("Comma-separated states, e.g. READY,ERROR"),
+        // See the search field above: blank optional filters are rejected, not silently ignored.
+        projectId: z.string().min(1).optional().describe("Limit to one project"),
+        state: z.string().min(1).optional().describe("Comma-separated states, e.g. READY,ERROR"),
         limit: z.number().int().min(1).max(100).optional().describe("Max results (default 20)"),
       },
       outputSchema: ListDeploymentsOutputSchema,
@@ -226,6 +239,7 @@ export function registerTools(server: McpServer): void {
             limit: limit ?? 20,
           },
         );
+        assertArrayField(data, "deployments");
         const deployments = (data.deployments ?? []).map((d) => ({
           id: d.uid ?? d.id,
           name: d.name,
@@ -268,6 +282,7 @@ export function registerTools(server: McpServer): void {
           config,
           `${ENDPOINTS.getDeployment}${encodeURIComponent(idOrUrl)}`,
         );
+        assertDeploymentShape(d);
         return asStructured({
           item: {
             id: d.uid ?? d.id,

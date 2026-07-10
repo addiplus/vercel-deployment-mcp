@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import { registerTools } from "../src/tools.js";
 
 const TOKEN = "vc_test_token_a1b2c3d4e5";
@@ -10,16 +11,20 @@ type ToolHandler = (args: Record<string, unknown>) => Promise<{
   isError?: boolean;
 }>;
 
+interface ToolMeta {
+  inputSchema: z.ZodRawShape;
+}
+
 interface RegisteredTool {
   name: string;
-  meta: unknown;
+  meta: ToolMeta;
   handler: ToolHandler;
 }
 
 /** Records registerTool calls instead of talking to a real MCP transport. */
 class FakeServer {
   tools = new Map<string, RegisteredTool>();
-  registerTool(name: string, meta: unknown, handler: ToolHandler): void {
+  registerTool(name: string, meta: ToolMeta, handler: ToolHandler): void {
     this.tools.set(name, { name, meta, handler });
   }
 }
@@ -32,6 +37,10 @@ function getTools(): Map<string, RegisteredTool> {
 
 let savedToken: string | undefined;
 let savedTeamId: string | undefined;
+
+// vercelGet falls back to a lazily-created, module-level default Throttle when tools.ts
+// doesn't inject one. Disable its spacing so these tests never wait on a real timer.
+process.env.VERCEL_MCP_MIN_INTERVAL_MS = "0";
 
 beforeEach(() => {
   savedToken = process.env.VERCEL_TOKEN;
@@ -397,5 +406,128 @@ describe("missing configuration", () => {
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("VERCEL_TOKEN");
     expect(result.content[0].text).toContain("Configuration problem");
+  });
+});
+
+// The SDK validates arguments against the registered inputSchema before ever calling the
+// handler, so a blank optional filter never reaches the code below — it becomes a schema
+// validation error instead of a silent unfiltered list. FakeServer captures that same
+// zod shape, so these tests parse against it directly.
+describe("blank optional filters are rejected at the schema boundary", () => {
+  it("list_projects rejects an empty search but accepts a non-empty one", () => {
+    const tools = getTools();
+    const schema = z.object(tools.get("list_projects")!.meta.inputSchema);
+    expect(schema.safeParse({ search: "" }).success).toBe(false);
+    expect(schema.safeParse({ search: "demo" }).success).toBe(true);
+    expect(schema.safeParse({}).success).toBe(true);
+  });
+
+  it("list_deployments rejects an empty projectId but accepts a non-empty one", () => {
+    const tools = getTools();
+    const schema = z.object(tools.get("list_deployments")!.meta.inputSchema);
+    expect(schema.safeParse({ projectId: "" }).success).toBe(false);
+    expect(schema.safeParse({ projectId: "prj_demo" }).success).toBe(true);
+  });
+
+  it("list_deployments rejects an empty state but accepts a non-empty one", () => {
+    const tools = getTools();
+    const schema = z.object(tools.get("list_deployments")!.meta.inputSchema);
+    expect(schema.safeParse({ state: "" }).success).toBe(false);
+    expect(schema.safeParse({ state: "READY" }).success).toBe(true);
+  });
+});
+
+describe("receipt.appliedFilters for valid filters", () => {
+  it("list_projects records search once applied", async () => {
+    const tools = getTools();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ projects: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await tools.get("list_projects")!.handler({ search: "demo" });
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.receipt.appliedFilters).toEqual(["search"]);
+  });
+
+  it("list_deployments records projectId and state together, in order", async () => {
+    const tools = getTools();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ deployments: [] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await tools.get("list_deployments")!.handler({
+      projectId: "prj_demo",
+      state: "READY",
+    });
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.receipt.appliedFilters).toEqual(["projectId", "state"]);
+  });
+
+  it("list_deployments records state alone when projectId is absent", async () => {
+    const tools = getTools();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ deployments: [] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await tools.get("list_deployments")!.handler({ state: "ERROR" });
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.receipt.appliedFilters).toEqual(["state"]);
+  });
+});
+
+describe("unexpected 2xx response shapes", () => {
+  it("list_projects errors when data.projects is present but not an array", async () => {
+    const tools = getTools();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ projects: "not-an-array" }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await tools.get("list_projects")!.handler({});
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("unexpected response shape");
+    expect(result.content[0].text).not.toContain(TOKEN);
+  });
+
+  it("list_deployments errors when data.deployments is present but not an array", async () => {
+    const tools = getTools();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ deployments: { not: "an array" } }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await tools.get("list_deployments")!.handler({});
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("unexpected response shape");
+    expect(result.content[0].text).not.toContain(TOKEN);
+  });
+
+  it("get_project errors when the body is missing a string id or name", async () => {
+    const tools = getTools();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ id: "prj_1", name: 42 }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await tools.get("get_project")!.handler({ idOrName: "prj_1" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("unexpected response shape");
+    expect(result.content[0].text).not.toContain(TOKEN);
+  });
+
+  it("get_project errors when the body is not an object", async () => {
+    const tools = getTools();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify("just a string"), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await tools.get("get_project")!.handler({ idOrName: "prj_1" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("unexpected response shape");
+  });
+
+  it("get_deployment errors when neither uid nor id is a string", async () => {
+    const tools = getTools();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ name: "app", url: "app.vercel.app" }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await tools.get("get_deployment")!.handler({ idOrUrl: "dpl_1" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("unexpected response shape");
+    expect(result.content[0].text).not.toContain(TOKEN);
   });
 });
