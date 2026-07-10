@@ -20,6 +20,11 @@ short-lived infrastructure.
 | `list_deployments` | List recent deployments (filter by project, state, limit) |
 | `get_deployment` | Fetch one deployment by ID or URL, including current state |
 
+`list_projects` and `list_deployments` each return a single page of up to
+`limit` results (default 20, max 100). There is no cursor pagination; narrow
+the request with `search`, `projectId`, or `state` to see more specific
+results.
+
 ## Install
 
 From npm:
@@ -44,12 +49,21 @@ npm run build
 npm test
 ```
 
+Building and testing this repo requires Node 22+ (CI runs 22 and 24); the
+published package runs on Node >=18 per `engines`.
+
 ## Configuration
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `VERCEL_TOKEN` | yes | Vercel access token (create in account settings) |
 | `VERCEL_TEAM_ID` | no | Scope requests to a team |
+| `VERCEL_MCP_MIN_INTERVAL_MS` | no | Minimum milliseconds between the start of one Vercel API request and the next (default `250`) |
+| `VERCEL_MCP_MAX_CONCURRENT` | no | Maximum number of Vercel API requests in flight at once (default `4`) |
+
+On an HTTP 429 with a numeric `Retry-After` header of 10 seconds or less, the
+server waits that long and retries the request once; any other 429 is
+surfaced as an error on the first attempt.
 
 Example client configuration (Claude Desktop / Claude Code):
 
@@ -70,7 +84,7 @@ When running from a source checkout, use `"command": "node"` with
 
 ## Design principles
 
-Dated 2026-07-08. Each claim below is implemented in code and verified by the
+Dated 2026-07-10. Each claim below is implemented in code and verified by the
 test suite where testable (`test/`); design properties cite the implementing
 code.
 
@@ -82,10 +96,13 @@ code.
    (`src/index.ts`), so no log line can leak into a tool response.
 3. **Minimal footprint.** v0.1 tools are read-only observations of projects
    and deployments; the server requests nothing beyond what those reads need.
-4. **Stateless by design.** There is no module-level mutable state
-   (`src/tools.ts`, `src/vercel.ts`), and configuration is re-read from the
-   environment on every tool call (verified in `test/tools.test.ts`), so
-   behavior is identical on long-lived hosts and short-lived workers.
+4. **Stateless by design.** Configuration is re-read from the environment on
+   every tool call (verified in `test/tools.test.ts`), so behavior is
+   identical on long-lived hosts and short-lived workers. The one piece of
+   module-level state is a request throttle (`src/vercel.ts`) that spaces out
+   and caps concurrent Vercel API calls; its interval and concurrency
+   settings are read once at first use, and it holds no credentials or
+   response data.
 
 ## Roadmap
 
