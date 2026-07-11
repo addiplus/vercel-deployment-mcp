@@ -283,11 +283,12 @@ export function assertProjectShape(
   if (typeof obj.id !== "string" || typeof obj.name !== "string") throw shapeError();
 }
 
-/** Guard a single-deployment body before it is cast and mapped. */
-export function assertDeploymentShape(data: unknown): asserts data is Record<string, unknown> {
-  if (typeof data !== "object" || data === null) throw shapeError();
+/** Guard a single-deployment body; provider identity may be absent in a partial 2xx result. */
+export function assertDeploymentShape<T>(data: T): asserts data is T & Record<string, unknown> {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) throw shapeError();
   const obj = data as Record<string, unknown>;
-  if (typeof (obj.uid ?? obj.id) !== "string") throw shapeError();
+  if (obj.uid !== undefined && typeof obj.uid !== "string") throw shapeError();
+  if (obj.id !== undefined && typeof obj.id !== "string") throw shapeError();
 }
 
 /** Shape any error into a clean, client-safe string. */

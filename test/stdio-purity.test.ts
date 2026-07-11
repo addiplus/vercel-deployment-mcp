@@ -38,14 +38,25 @@ describe("stdio purity", () => {
         "globalThis.fetch = async (input, init = {}) => {",
         "  const url = new URL(String(input));",
         "  if (url.origin !== 'https://api.vercel.com') throw new Error('unexpected origin');",
-        "  if ((init.method ?? 'GET') !== 'GET' || init.body !== undefined) throw new Error('unexpected request');",
+        "  if ((init.method ?? 'GET') !== 'GET' || init.body !== undefined) {",
+        "    throw new Error('unexpected request');",
+        "  }",
         "  let body;",
         "  switch (url.pathname) {",
         "    case '/v9/projects': body = { projects: [{ id: 'prj_1', name: 'demo' }] }; break;",
         "    case '/v9/projects/prj_wire': body = { id: 'prj_wire', name: 'demo' }; break;",
-        "    case '/v9/projects/forbidden': return new Response(JSON.stringify({ error: { code: 'forbidden', message: 'denied' } }), { status: 403 });",
-        "    case '/v6/deployments': body = { deployments: [{ uid: 'dpl_1', name: 'app' }] }; break;",
-        "    case '/v13/deployments/dpl_wire': body = { uid: 'dpl_wire', name: 'app', readyState: 'READY' }; break;",
+        "    case '/v9/projects/forbidden':",
+        "      return new Response(",
+        "        JSON.stringify({ error: { code: 'forbidden', message: 'denied' } }),",
+        "        { status: 403 },",
+        "      );",
+        "    // Deployment identity is intentionally absent to prove partial success.",
+        "    case '/v6/deployments':",
+        "      body = { deployments: [{ name: 'app', readyState: 'READY' }] };",
+        "      break;",
+        "    case '/v13/deployments/dpl_wire':",
+        "      body = { name: 'app', readyState: 'READY' };",
+        "      break;",
         "    default: throw new Error('unexpected path: ' + url.pathname);",
         "  }",
         "  return new Response(JSON.stringify(body), { status: 200 });",
@@ -138,10 +149,38 @@ describe("stdio purity", () => {
           endpointProfile: "vercel-read-v1",
         });
         const cases = [
-          ["list_projects", { search: "demo" }, { pageCount: 1, items: [{ id: "prj_1", name: "demo", framework: null }], receipt: receipt("search") }],
-          ["get_project", { idOrName: "prj_wire" }, { item: { id: "prj_wire", name: "demo", framework: null }, receipt: receipt() }],
-          ["list_deployments", { projectId: "prj_wire", state: "READY" }, { pageCount: 1, items: [{ id: "dpl_1", name: "app", target: null }], receipt: receipt("projectId", "state") }],
-          ["get_deployment", { idOrUrl: "dpl_wire" }, { item: { id: "dpl_wire", name: "app", state: "READY", target: null }, receipt: receipt() }],
+          [
+            "list_projects",
+            { search: "demo" },
+            {
+              pageCount: 1, items: [{ id: "prj_1", name: "demo", framework: null }],
+              receipt: receipt("search"),
+            },
+          ],
+          [
+            "get_project",
+            { idOrName: "prj_wire" },
+            {
+              item: { id: "prj_wire", name: "demo", framework: null },
+              receipt: receipt(),
+            },
+          ],
+          [
+            "list_deployments",
+            { projectId: "prj_wire", state: "READY" },
+            {
+              pageCount: 1, items: [{ name: "app", state: "READY", target: null }],
+              receipt: receipt("projectId", "state"),
+            },
+          ],
+          [
+            "get_deployment",
+            { idOrUrl: "dpl_wire" },
+            {
+              item: { name: "app", state: "READY", target: null },
+              receipt: receipt(),
+            },
+          ],
         ] as const;
         const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
         const invalidFilters: Record<string, string[]> = {
@@ -153,7 +192,12 @@ describe("stdio purity", () => {
 
         for (const [index, [name, args, expected]] of cases.entries()) {
           const id = index + 3;
-          send(child, { jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+          send(child, {
+            jsonrpc: "2.0",
+            id,
+            method: "tools/call",
+            params: { name, arguments: args },
+          });
           await waitForId(responses, id, 20_000, () => stderrBuffer);
           const frame = responses.get(id) as {
             error?: unknown;
@@ -170,11 +214,21 @@ describe("stdio purity", () => {
           expect(JSON.parse(frame.result?.content?.[0]?.text ?? "")).toEqual(structured);
           const validate = ajv.compile(toolsByName.get(name)!.outputSchema!);
           expect(validate(structured), JSON.stringify(validate.errors)).toBe(true);
+          if (name === "list_deployments") {
+            const reordered = JSON.parse(JSON.stringify(structured)) as {
+              receipt: { appliedFilters: string[] };
+            };
+            reordered.receipt.appliedFilters.reverse();
+            expect(validate(reordered), JSON.stringify(validate.errors)).toBe(true);
+          }
           const invalidReceipt = JSON.parse(JSON.stringify(structured)) as {
             receipt: { appliedFilters: string[] };
           };
           invalidReceipt.receipt.appliedFilters = invalidFilters[name];
-          expect(validate(invalidReceipt), `${name}: ${JSON.stringify(validate.errors)}`).toBe(false);
+          expect(
+            validate(invalidReceipt),
+            `${name}: ${JSON.stringify(validate.errors)}`,
+          ).toBe(false);
           expect(JSON.stringify(frame.result)).not.toMatch(new RegExp(`${token}|${teamId}`));
           if ("pageCount" in expected) {
             expect(structured).not.toHaveProperty("hasMore");
@@ -182,11 +236,21 @@ describe("stdio purity", () => {
           }
         }
 
-        send(child, { jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "get_project", arguments: { idOrName: "forbidden" } } });
+        send(child, {
+          jsonrpc: "2.0",
+          id: 7,
+          method: "tools/call",
+          params: { name: "get_project", arguments: { idOrName: "forbidden" } },
+        });
         await waitForId(responses, 7, 20_000, () => stderrBuffer);
-        const toolError = responses.get(7) as { error?: unknown; result?: { isError?: boolean; content?: unknown[]; structuredContent?: unknown } };
+        const toolError = responses.get(7) as {
+          error?: unknown;
+          result?: { isError?: boolean; content?: unknown[]; structuredContent?: unknown };
+        };
         expect([toolError.error, toolError.result?.isError]).toEqual([undefined, true]);
-        expect(toolError.result?.content).toEqual([expect.objectContaining({ type: "text", text: expect.any(String) })]);
+        expect(toolError.result?.content).toEqual([
+          expect.objectContaining({ type: "text", text: expect.any(String) }),
+        ]);
         expect(toolError.result?.structuredContent).toBeUndefined();
         expect(JSON.stringify(toolError)).not.toMatch(new RegExp(`${token}|${teamId}`));
 
