@@ -55,7 +55,7 @@ describe("stdio purity", () => {
         "      body = { deployments: [{ name: 'app', readyState: 'READY' }] };",
         "      break;",
         "    case '/v13/deployments/dpl_wire':",
-        "      body = { name: 'app', readyState: 'READY' };",
+        "      body = { uid: 'dpl_wire', name: 'app', readyState: 'READY' };",
         "      break;",
         "    default: throw new Error('unexpected path: ' + url.pathname);",
         "  }",
@@ -177,7 +177,7 @@ describe("stdio purity", () => {
             "get_deployment",
             { idOrUrl: "dpl_wire" },
             {
-              item: { name: "app", state: "READY", target: null },
+              item: { id: "dpl_wire", name: "app", state: "READY", target: null },
               receipt: receipt(),
             },
           ],
