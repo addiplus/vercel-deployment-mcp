@@ -57,7 +57,9 @@ const DeploymentListReceiptSchema = receiptSchema(
   z
     .array(z.enum(["projectId", "state"]))
     .max(2)
-    .refine((filters) => new Set(filters).size === filters.length)
+    .refine((filters) => new Set(filters).size === filters.length, {
+      message: "Deployment receipt filters must be unique.",
+    })
     .meta({ uniqueItems: true }),
 );
 
