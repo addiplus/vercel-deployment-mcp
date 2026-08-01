@@ -11,6 +11,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 const PREFIX = "vercel-deployment-mcp-packed-";
 const TOKEN = "packed-token-canary-never-log";
+const EXPECTED_PATH = "/v6/deployments";
 const MAX_COMMAND_OUTPUT = 128 * 1024;
 const MAX_SERVER_STDERR = 32 * 1024;
 const STDERR_CLOSE_TIMEOUT = 2_000;
@@ -177,7 +178,6 @@ async function main() {
       process.platform === "win32" ? "vercel-deployment-mcp.cmd" : "vercel-deployment-mcp",
     );
     await lstat(shim);
-    const expectedPath = process.env.PACKED_SMOKE_EXPECTED_PATH ?? "/v6/deployments";
     const transport = new StdioClientTransport({
       command: shim,
       cwd: consumerDir,
@@ -187,7 +187,7 @@ async function main() {
         NODE_OPTIONS: `--import=${pathToFileURL(preloadPath).href}`,
         PACKED_SMOKE_MARKER: markerPath,
         PACKED_SMOKE_NODE_VERSION: process.version,
-        PACKED_SMOKE_EXPECTED_PATH: expectedPath,
+        PACKED_SMOKE_EXPECTED_PATH: EXPECTED_PATH,
         VERCEL_TOKEN: TOKEN,
       },
     });
@@ -245,7 +245,7 @@ async function main() {
     const serverStderr = Buffer.concat(stderrChunks, stderrBytes).toString("utf8");
     assert.deepEqual(events, [
       { type: "runtime", version: process.version },
-      { type: "fetch", calls: 1, method: "GET", path: "/v6/deployments" },
+      { type: "fetch", calls: 1, method: "GET", path: EXPECTED_PATH },
     ]);
     assert.equal(stderrOverflow, false, "server stderr exceeded limit");
     const leakSurface = JSON.stringify([
