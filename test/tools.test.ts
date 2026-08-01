@@ -86,7 +86,17 @@ describe("tool registration", () => {
     for (const filters of validFilters) {
       expect(schema.safeParse(resultWith(filters)).success).toBe(true);
     }
-    for (const filters of [["projectId", "projectId"], ["state", "state"], ["other"]]) {
+    const duplicate = schema.safeParse(resultWith(["projectId", "projectId"]));
+    expect(duplicate.success).toBe(false);
+    if (!duplicate.success) {
+      expect(duplicate.error.issues).toContainEqual(
+        expect.objectContaining({
+          path: ["receipt", "appliedFilters"],
+          message: "Deployment receipt filters must be unique.",
+        }),
+      );
+    }
+    for (const filters of [["state", "state"], ["other"]]) {
       expect(schema.safeParse(resultWith(filters)).success).toBe(false);
     }
   });
