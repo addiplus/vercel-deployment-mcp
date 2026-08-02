@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * vercel-deployment-mcp — reference MCP server (stdio).
+ * vercel-deployment-mcp: reference MCP server (stdio).
  *
  * Stateless by design: no session data is held between requests, so the
  * server behaves identically on long-lived hosts and short-lived workers.

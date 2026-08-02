@@ -7,12 +7,12 @@ How this server is validated. Everything below is reproducible from a clean clon
 
 Three files, run with vitest.
 
-- `test/vercel.test.ts` — the API client. Configuration handling, credential redaction
+- `test/vercel.test.ts`: the API client. Configuration handling, credential redaction
   (token and team id, at both the request site and the client boundary), error shaping and
   size bounds (upstream messages are cut to 400 chars, client strings to 500), rate-limit
   and auth hints, network failures, the 30-second request timeout, non-JSON error bodies,
   the hardcoded fallback for non-Error throws, the request throttle (minimum start-to-start
-  spacing and the concurrency cap, both driven by an injected fake clock/sleep — no
+  spacing and the concurrency cap, both driven by an injected fake clock/sleep, no
   real-time waits), `resolveThrottleOptions` env parsing (defaults of 250ms / 4, a
   non-numeric or negative value falling back to the default, `minIntervalMs: 0` disabling
   spacing, `maxConcurrent` flooring at 1), and the HTTP 429 retry rule: a numeric
@@ -20,7 +20,7 @@ Three files, run with vitest.
   retries exactly once, while an absent, non-numeric, or over-10 `Retry-After` does not
   retry and surfaces the 429 as-is; a retried request still redacts credentials from
   whatever error it eventually surfaces.
-- `test/tools.test.ts` — the four tools at handler level. Exactly four tools registered;
+- `test/tools.test.ts`: the four tools at handler level. Exactly four tools registered;
   every request is a GET with only the documented query parameters and no body; responses
   project a fixed field set (extra upstream fields are dropped); `limit` defaults to 20;
   path segments are percent-encoded; deployment state falls back from `state` to
@@ -34,7 +34,7 @@ Three files, run with vitest.
   while a non-empty value still produces the matching `receipt.appliedFilters`; and a 2xx
   body where `data.projects` or `data.deployments` is present but not an array is rejected
   before it reaches the response mapping, as `isError: true`.
-- `test/stdio-purity.test.ts` — the built server as a black box. Spawns `dist/index.js`
+- `test/stdio-purity.test.ts`: the built server as a black box. Spawns `dist/index.js`
   with a stubbed global `fetch` (rejecting any request outside `https://api.vercel.com` or
   with a body or a non-GET method) and runs a real initialize / tools/list / tools/call
   session over stdio. Asserts: exactly the four documented tools are listed, each with the
@@ -67,5 +67,5 @@ Three files, run with vitest.
   real token.
 - Throttle and 429-retry tests use an injected fake clock and sleep, never a real-time
   wait, so the suite stays fast regardless of the configured interval.
-- TypeScript 7.0.2 (the native compiler); no lint dependency — build and tests are the
+- TypeScript 7.0.2 (the native compiler); no lint dependency, so build and tests are the
   quality gates.

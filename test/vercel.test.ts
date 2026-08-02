@@ -325,11 +325,11 @@ describe("Throttle", () => {
     await throttle.run(async () => {
       starts.push(clock);
     });
-    clock += 20; // well within the 100ms interval — the next run() must wait 80ms
+    clock += 20; // well within the 100ms interval, so the next run() must wait 80ms
     await throttle.run(async () => {
       starts.push(clock);
     });
-    clock += 200; // already past the interval — no wait needed
+    clock += 200; // already past the interval, no wait needed
     await throttle.run(async () => {
       starts.push(clock);
     });

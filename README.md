@@ -6,7 +6,7 @@ A reference [Model Context Protocol](https://modelcontextprotocol.io) server for
 observing Vercel projects and deployments over stdio.
 
 This is a community reference implementation focused on deployment-workflow
-patterns — it is not a replacement for Vercel's own MCP offering. Its purpose
+patterns. It is not a replacement for Vercel's own MCP offering. Its purpose
 is to demonstrate, in a small and readable codebase, how a deployment-focused
 MCP server can handle configuration cleanly and behave predictably on
 short-lived infrastructure.

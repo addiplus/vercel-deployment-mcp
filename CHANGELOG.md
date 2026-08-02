@@ -14,7 +14,7 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   content, and list results changed shape from `{count, projects|deployments}`
   to `{pageCount, items, receipt}`, where `receipt` reports the request's
   `scopeKind`, `appliedFilters`, and `endpointProfile`. Clients parsing the
-  previous text shape must update — hence 0.2.0 rather than 0.1.1.
+  previous text shape must update, hence 0.2.0 rather than 0.1.1.
 - Blank strings are no longer accepted for the optional `search`, `projectId`,
   and `state` inputs (`.min(1)`). Previously a blank string was silently
   treated as "filter not applied", widening the result scope.

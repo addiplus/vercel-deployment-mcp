@@ -444,7 +444,7 @@ describe("missing configuration", () => {
 });
 
 // The SDK validates arguments against the registered inputSchema before ever calling the
-// handler, so a blank optional filter never reaches the code below — it becomes a schema
+// handler, so a blank optional filter never reaches the code below: it becomes a schema
 // validation error instead of a silent unfiltered list. FakeServer captures that same
 // zod shape, so these tests parse against it directly.
 describe("blank optional filters are rejected at the schema boundary", () => {

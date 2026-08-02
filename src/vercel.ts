@@ -95,7 +95,7 @@ function parseFiniteNonNegative(raw: string | undefined): number | undefined {
   return n;
 }
 
-/** Parse throttle env vars defensively — bad input falls back to defaults, never throws. */
+/** Parse throttle env vars defensively: bad input falls back to defaults, never throws. */
 export function resolveThrottleOptions(env: NodeJS.ProcessEnv = process.env): ThrottleOptions {
   const parsedMinInterval = parseFiniteNonNegative(env.VERCEL_MCP_MIN_INTERVAL_MS);
   const minIntervalMs =
@@ -249,7 +249,7 @@ export async function vercelGet<T>(
       code = body.error?.code;
       if (body.error?.message) message = body.error.message;
     } catch {
-      /* non-JSON body — keep the generic message */
+      /* non-JSON body, keep the generic message */
     }
     const safe = redactValues(message, [config.token, config.teamId]).slice(0, MAX_ERROR_LEN);
     throw new ApiError(res.status, code, safe);
@@ -301,7 +301,7 @@ export function formatToolError(err: unknown, config?: VercelConfig): string {
       err.status === 401 || err.status === 403
         ? " Check that the configured credential is valid and has access to this project or team."
         : err.status === 429
-          ? " Rate limited by the Vercel API — retry after a short wait."
+          ? " Rate limited by the Vercel API, so retry after a short wait."
           : "";
     const body = hint && err.message && !/[.!?]$/.test(err.message) ? `${err.message}.` : err.message;
     msg = `Vercel API error (HTTP ${err.status}${err.code ? `, ${err.code}` : ""}): ${body}${hint}`;

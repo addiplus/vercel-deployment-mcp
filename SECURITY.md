@@ -16,16 +16,16 @@ Do not open a public issue for a suspected vulnerability.
 
 In scope:
 
-- Credential handling and redaction — `VERCEL_TOKEN` / `VERCEL_TEAM_ID`
+- Credential handling and redaction: `VERCEL_TOKEN` / `VERCEL_TEAM_ID`
   leaking into logs, errors, or tool responses.
-- stdout protocol purity — anything other than JSON-RPC frames reaching
+- stdout protocol purity: anything other than JSON-RPC frames reaching
   stdout.
-- The read-only guarantee — any path by which a tool call could mutate a
+- The read-only guarantee: any path by which a tool call could mutate a
   Vercel project or deployment rather than only observing it.
 
 Out of scope: vulnerabilities in the Vercel API itself, in the
 `@modelcontextprotocol/sdk` dependency, or in the MCP client/host running
-this server — report those upstream.
+this server. Report those upstream.
 
 ## Response
 
