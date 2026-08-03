@@ -1,6 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createRequire } from "node:module";
 import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
+
+const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
 function send(child: ChildProcessWithoutNullStreams, msg: unknown): void {
   child.stdin.write(JSON.stringify(msg) + "\n");
@@ -104,6 +107,11 @@ describe("stdio purity", () => {
           },
         });
         await waitForId(responses, 1, 20_000, () => stderrBuffer);
+        const initFrame = responses.get(1) as {
+          result?: { serverInfo?: { name?: string; version?: string } };
+        };
+        expect(initFrame.result?.serverInfo?.name).toBe("vercel-deployment-mcp");
+        expect(initFrame.result?.serverInfo?.version).toBe(pkg.version);
         send(child, { jsonrpc: "2.0", method: "notifications/initialized" });
         send(child, { jsonrpc: "2.0", id: 2, method: "tools/list" });
         await waitForId(responses, 2, 20_000, () => stderrBuffer);
