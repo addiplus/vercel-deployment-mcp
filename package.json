@@ -26,13 +26,15 @@
     "url": "git+https://github.com/addiplus/vercel-deployment-mcp.git"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/core": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^26.1.1",
     "ajv": "8.20.0",
     "typescript": "^7.0.2",

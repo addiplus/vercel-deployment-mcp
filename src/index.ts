@@ -6,8 +6,8 @@
  * server behaves identically on long-lived hosts and short-lived workers.
  * stdout carries the MCP protocol; all diagnostics go to stderr.
  */
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { McpServer } from "@modelcontextprotocol/server";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { registerTools } from "./tools.js";
 
 const server = new McpServer({

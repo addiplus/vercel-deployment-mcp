@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createRequire } from "node:module";
-import Ajv from "ajv";
+import Ajv from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
@@ -276,8 +276,15 @@ describe("stdio purity", () => {
         if (invalid.error) {
           expect(invalid.error.code).toBe(-32602);
         } else {
+          // SDK 2.0 reports invalid tool arguments as a tool result, not a JSON-RPC
+          // error frame, and its message no longer carries the -32602 code. Pin the
+          // parts of the contract that still identify the failure precisely: the
+          // error flag, the tool that rejected the call, and the offending field.
           expect(invalid.result?.isError).toBe(true);
-          expect(invalid.result?.content?.[0]?.text).toContain("-32602");
+          expect(invalid.result?.content?.[0]?.text).toContain(
+            "Invalid arguments for tool get_project",
+          );
+          expect(invalid.result?.content?.[0]?.text).toContain("idOrName");
         }
 
         for (const line of stdoutLines) expect(JSON.parse(line).jsonrpc).toBe("2.0");
