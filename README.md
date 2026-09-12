@@ -94,7 +94,7 @@ code.
    value back (`src/vercel.ts`).
 2. **stdout belongs to the protocol.** All diagnostics go to stderr
    (`src/index.ts`), so no log line can leak into a tool response.
-3. **Minimal footprint.** v0.1 tools are read-only observations of projects
+3. **Minimal footprint.** The tools are read-only observations of projects
    and deployments; the server requests nothing beyond what those reads need.
 4. **Stateless by design.** Configuration is re-read from the environment on
    every tool call (verified in `test/tools.test.ts`), so behavior is
