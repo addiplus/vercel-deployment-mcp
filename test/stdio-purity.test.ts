@@ -271,7 +271,7 @@ describe("stdio purity", () => {
         await waitForId(responses, 8, 20_000, () => stderrBuffer);
         const invalid = responses.get(8) as {
           error?: unknown;
-          result?: { isError?: boolean; content?: Array<{ text?: string }> };
+          result?: { isError?: boolean; content?: Array<{ type?: string; text?: string }> };
         };
         // The 2.0 SDK reports invalid tool arguments as a tool result, not as a
         // JSON-RPC error frame, so -32602 is not on the wire for this call and a
@@ -280,12 +280,18 @@ describe("stdio purity", () => {
         // validation failure, and the offending field. "idOrName" is this repo's own
         // schema key (src/tools.ts), so it is pinned exactly; the sentence around it
         // is written inside @modelcontextprotocol/server, so it is matched loosely
-        // and an upstream reword cannot turn this suite red on its own.
+        // and an upstream reword cannot turn this suite red on its own. The last
+        // assertion is the negative side of the same contract: the JSON-RPC code
+        // that the 1.x SDK put on the wire for this call must not reappear as text
+        // inside the tool result, so no five-digit protocol code may leak there.
         expect(invalid.error).toBeUndefined();
         expect(invalid.result?.isError).toBe(true);
+        expect(invalid.result?.content).toHaveLength(1);
+        expect(invalid.result?.content?.[0]?.type).toBe("text");
         const invalidText = invalid.result?.content?.[0]?.text ?? "";
         expect(invalidText).toMatch(/Invalid arguments|validation error/i);
         expect(invalidText).toContain("idOrName");
+        expect(invalidText).not.toMatch(/-\d{5}\b/);
 
         for (const line of stdoutLines) expect(JSON.parse(line).jsonrpc).toBe("2.0");
         expect(stderrBuffer).toContain("vercel-deployment-mcp ready (stdio)");

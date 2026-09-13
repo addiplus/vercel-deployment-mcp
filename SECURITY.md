@@ -23,9 +23,11 @@ In scope:
 - The read-only guarantee: any path by which a tool call could mutate a
   Vercel project or deployment rather than only observing it.
 
-Out of scope: vulnerabilities in the Vercel API itself, in the
-`@modelcontextprotocol/sdk` dependency, or in the MCP client/host running
-this server. Report those upstream.
+Out of scope: vulnerabilities in the Vercel API itself, in this server's
+runtime dependencies (`@modelcontextprotocol/server` and `zod`), in
+`@modelcontextprotocol/sdk`, which is a dev-only dependency used by the
+v1-client smoke script (`scripts/packed-consumer-smoke.mjs`), or in the MCP
+client/host running this server. Report those upstream.
 
 ## Response
 

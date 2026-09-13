@@ -40,6 +40,14 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   still installed, as an exact-pinned dependency of
   `@modelcontextprotocol/server` 2.0.0.
 
+### Fixed
+
+- `initialize` reported `serverInfo.version` as `0.1.0` while the package
+  was already `0.2.0`, so the handshake under-reported the server across a
+  breaking result-shape change. The version in `src/index.ts` now matches
+  `package.json`, and `test/stdio-purity.test.ts` asserts that parity
+  against `package.json` on every run.
+
 ## [0.2.0] - 2026-07-10
 
 ### Changed

@@ -11,6 +11,13 @@ is to demonstrate, in a small and readable codebase, how a deployment-focused
 MCP server can handle configuration cleanly and behave predictably on
 short-lived infrastructure.
 
+One binary serves both MCP protocol eras over stdio, through the SDK's
+`serveStdio` helper. A client that opens with the 2025 `initialize`
+handshake is served as it was before; a client that opens with the
+2026-07-28 exchange is served on that revision. The SDK's
+[Protocol versions](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions)
+document defines the two eras and what differs between them.
+
 ## Tools
 
 | Tool | Description |
