@@ -15,13 +15,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   still on Node 18 must upgrade Node or stay on 0.2.0.
 - The server is built against the `@modelcontextprotocol` 2.0 SDK line.
   `@modelcontextprotocol/server` (root barrel plus the `/stdio` subpath)
-  replaces `@modelcontextprotocol/sdk` for `McpServer`,
-  `ToolAnnotations`, and `StdioServerTransport`. Two consequences are
-  visible on the wire: tool schemas are emitted under JSON Schema
-  2020-12 rather than draft-07, and a call with invalid arguments comes
-  back as a tool result with `isError: true` instead of a JSON-RPC
-  `-32602` error frame. A client that matched on the `-32602` code must
-  read the tool result instead.
+  replaces `@modelcontextprotocol/sdk` for `McpServer` and
+  `ToolAnnotations`. Two consequences are visible on the wire: tool
+  schemas are emitted under JSON Schema 2020-12 rather than draft-07,
+  and a call with invalid arguments still comes back as a tool result
+  with `isError: true`, but its text no longer carries
+  `MCP error -32602:`. A client that matched `-32602` in that text must
+  match the validation message or the field name instead.
 - stdio is now served through the SDK's `serveStdio` helper, so one
   binary serves both protocol eras from one tool registration. A client
   that claims protocol revision `2026-07-28` in a per-request `_meta`
@@ -30,9 +30,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   `io.modelcontextprotocol/serverInfo` stamp, and once the connection is
   pinned to that era a 2025 `initialize` on it is refused with `-32022`
   rather than answered. A client that opens with `initialize`, which is
-  every 2025-era client, still negotiates `2025-06-18` and sees frames
-  identical to the ones it saw before; that is the helper's
-  `legacy: 'serve'` default, and nothing in this release overrides it.
+  every 2025-era client, still negotiates the revision it requests and
+  receives frames byte-identical to the previous build; that is the
+  helper's `legacy: 'serve'` default, and nothing in this release
+  overrides it.
 - `@modelcontextprotocol/sdk` 1.x stays in `devDependencies` only. The
   packed-consumer smoke test drives this server with a v1 client, which
   is the backward-compatibility proof.
