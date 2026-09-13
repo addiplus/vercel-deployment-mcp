@@ -280,7 +280,7 @@ describe("stdio purity", () => {
         // validation failure, and the offending field. "idOrName" is this repo's own
         // schema key (src/tools.ts), so it is pinned exactly; the sentence around it
         // is written inside @modelcontextprotocol/server, so it is matched loosely
-        // and an upstream reword cannot turn this suite red on its own. The last
+        // and the loose match reduces vendor-prose coupling, but rewording both alternatives requires updating this assertion. The last
         // assertion is the negative side of the same contract: the JSON-RPC code
         // that the 1.x SDK put on the wire for this call must not reappear as text
         // inside the tool result, so no five-digit protocol code may leak there.
