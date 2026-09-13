@@ -31,7 +31,7 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   pinned to that era a 2025 `initialize` on it is refused with `-32022`
   rather than answered. A client that opens with `initialize`, which is
   every 2025-era client, still negotiates the revision it requests and
-  receives frames byte-identical to the previous build; that is the
+  receives the same frames it received before stdio moved to `serveStdio`; that is the
   helper's `legacy: 'serve'` default, and nothing in this release
   overrides it.
 - `@modelcontextprotocol/sdk` 1.x stays in `devDependencies` only. The
