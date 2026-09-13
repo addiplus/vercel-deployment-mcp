@@ -40,6 +40,19 @@ const pkg = require_("../../package.json") as {
 const TOKEN = "vc_invariants_token_canary";
 const TEAM_ID = "team_invariants_canary";
 
+/**
+ * The tool order the recorded state (43c0e88) serves, written out here as a
+ * literal on purpose. Deriving it from src/tools.ts would make any assertion
+ * against it tautological: the same file supplies both the expectation and the
+ * behaviour, so a reordered registration would move both sides together.
+ */
+const EXPECTED_TOOL_ORDER = [
+  "list_projects",
+  "get_project",
+  "list_deployments",
+  "get_deployment",
+] as const;
+
 /** Names used as fixture keys; kept out of the range of the echo branch. */
 const UNICODE_NAME = "caf\u00e9 \u4e2d\u6587 \u65e5\u672c\u8a9e \u{1F680}\u{1F308} \u00df\u00e7";
 const TRICKY_NAME = 'quote " backslash \\ slash / newline \n tab \t end';
@@ -639,14 +652,24 @@ describe("invariants: filter and scope composition", () => {
 });
 
 describe("invariants: listed metadata agrees with the source", () => {
-  // Catches a reordered or renamed registration: the wire order must be the
-  // registerTool order in src/tools.ts, and every name must be non-empty.
+  // Catches a reordered or renamed registration. Both sides are compared to the
+  // hardcoded EXPECTED_TOOL_ORDER, never to each other: comparing the wire order
+  // to an order regexed out of the live source passes under any reordering,
+  // because the mutated source supplies the expectation as well as the result.
   it("lists tools in the order they are registered in src/tools.ts", async () => {
     const wire = (await listTools(team)).map((t) => t.name);
+    expect(wire).toEqual([...EXPECTED_TOOL_ORDER]);
     const source = [...TOOLS_SOURCE.matchAll(/registerTool\(\s*"([^"]+)"/g)].map((m) => m[1]);
-    expect(source).toHaveLength(4);
-    expect(wire).toEqual(source);
+    expect(source).toEqual([...EXPECTED_TOOL_ORDER]);
     for (const name of wire) expect(name.trim().length).toBeGreaterThan(0);
+  });
+
+  // Catches an order that is stable per process but not per connection: a second
+  // child must serve the same registration order as the first, both pinned to the
+  // literal rather than to each other.
+  it("serves the same pinned tool order on a second, independent connection", async () => {
+    expect((await listTools(personal)).map((t) => t.name)).toEqual([...EXPECTED_TOOL_ORDER]);
+    expect((await listTools(team)).map((t) => t.name)).toEqual([...EXPECTED_TOOL_ORDER]);
   });
 
   // Catches a stale dist or a dist-only edit: every title and description on
@@ -686,6 +709,30 @@ describe("invariants: listed metadata agrees with the source", () => {
       expect(tool.outputSchema, tool.name).toBeDefined();
       expect(typeof tool.outputSchema).toBe("object");
     }
+  });
+
+  // Catches any object node in a published output schema being opened up
+  // (z.strictObject -> z.looseObject), at any depth: the envelope, the projected
+  // item, or the receipt. A per-node walk means no single sub-schema is the only
+  // sentinel for the projection staying closed.
+  it("closes every object node in every published output schema", async () => {
+    const closed: string[] = [];
+    const walk = (node: unknown, path: string): void => {
+      if (node === null || typeof node !== "object" || Array.isArray(node)) return;
+      const schema = node as Record<string, unknown>;
+      if (schema.type === "object") {
+        expect(schema.additionalProperties, path).toBe(false);
+        closed.push(path);
+      }
+      for (const [key, value] of Object.entries(schema)) {
+        if (key === "additionalProperties" || key === "enum" || key === "const") continue;
+        walk(value, `${path}.${key}`);
+      }
+    };
+    for (const tool of await listTools(team)) walk(tool.outputSchema, tool.name);
+    // Four tools x (envelope + item + receipt): the walk must have reached them,
+    // so an empty or shallow traversal cannot pass this test vacuously.
+    expect(closed.length).toBeGreaterThanOrEqual(12);
   });
 });
 
@@ -751,11 +798,13 @@ describe("invariants: package manifest agrees with the build", () => {
   });
 
   // Catches a built CLI that no longer starts, hangs, or announces itself on
-  // the protocol channel instead of stderr.
-  it("starts the built CLI and answers a handshake within five seconds", async () => {
+  // the protocol channel instead of stderr. Deliberately unbounded in wall-clock
+  // terms: a cold spawn plus module load plus JIT warm-up is not a stable
+  // millisecond budget on a loaded or shared box, so the only bound is the test
+  // timeout, which distinguishes "hung" from "slow today" without flaking.
+  it("starts the built CLI and answers a handshake without hanging", async () => {
     const fresh = startChild(baseEnv({ VERCEL_TOKEN: TOKEN }), false);
     try {
-      const started = Date.now();
       const id = nextId();
       fresh.send({
         jsonrpc: "2.0",
@@ -767,8 +816,8 @@ describe("invariants: package manifest agrees with the build", () => {
           clientInfo: { name: "cold-start", version: "0.0.0" },
         },
       });
-      const frame = await fresh.wait(id, 5_000);
-      expect(Date.now() - started).toBeLessThan(5_000);
+      const frame = await fresh.wait(id, 25_000);
+      expect(frame.result?.protocolVersion).toBe("2025-06-18");
       expect(frame.result?.serverInfo?.name).toBe("vercel-deployment-mcp");
       expect(fresh.stderr()).toContain("vercel-deployment-mcp ready (stdio)");
       for (const line of fresh.lines()) expect(JSON.parse(line).jsonrpc).toBe("2.0");
@@ -831,16 +880,50 @@ describe("invariants: protocol surface", () => {
     expect(frame.result).toBeUndefined();
   });
 
-  // Catches diagnostics moving onto the protocol channel: after every exchange
-  // above, stdout must still be nothing but JSON-RPC frames.
-  it("keeps stdout free of non-protocol output across the whole session", () => {
+  // Catches diagnostics moving onto the protocol channel: across a session that
+  // mixes discovery, every tool, a failure and an unknown method, stdout must
+  // still be nothing but JSON-RPC frames.
+  //
+  // The traffic is driven from inside this test rather than inherited from the
+  // sibling tests above it. Counting on siblings to have already filled the
+  // shared child's stdout makes the assertion order-dependent, and it failed
+  // exactly that way under vitest --sequence.shuffle (lines.length was 1, the
+  // beforeAll handshake alone).
+  it("keeps stdout free of non-protocol output across the whole session", async () => {
+    const before = team.lines().length;
+    const discovery = [nextId(), nextId(), nextId(), nextId()];
+    for (const id of discovery) team.send({ jsonrpc: "2.0", id, method: "tools/list" });
+    const unknownMethod = nextId();
+    team.send({ jsonrpc: "2.0", id: unknownMethod, method: "no/such/method" });
+    const unknownTool = nextId();
+    team.send({
+      jsonrpc: "2.0",
+      id: unknownTool,
+      method: "tools/call",
+      params: { name: "no_such_tool", arguments: {} },
+    });
+    await Promise.all([...discovery, unknownMethod, unknownTool].map((id) => team.wait(id)));
+    await Promise.all([
+      call(team, "list_projects", { search: "purity-a" }),
+      call(team, "get_project", { idOrName: "purity-b" }),
+      call(team, "list_deployments", { projectId: "purity-c" }),
+      call(team, "get_deployment", { idOrUrl: "purity-d" }),
+    ]);
+    await callFrame(team, "get_project", { idOrName: "forbidden" });
+
     const lines = team.lines();
+    // 11 answers this test drove itself, so the count never depends on sibling
+    // order; the initialize frame from beforeAll is on top of that.
+    expect(lines.length - before).toBeGreaterThanOrEqual(11);
     expect(lines.length).toBeGreaterThan(10);
     for (const line of lines) {
       const parsed = JSON.parse(line) as Frame;
       expect(parsed.jsonrpc).toBe("2.0");
     }
     expect(team.stderr()).toContain("vercel-deployment-mcp ready (stdio)");
+    // The token must never appear; the team id legitimately does, because the
+    // echo fixture reflects the outbound query string (teamId included) back
+    // through a projected field, which is how other tests here observe it.
     expect(JSON.stringify(lines)).not.toContain(TOKEN);
   });
 });

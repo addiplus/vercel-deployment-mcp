@@ -161,6 +161,12 @@ function scenario(kind, key) {
       return raw(502, "upstream-gateway-body-marker");
     case "ok200malformed":
       return raw(200, '{"projects": [', { "content-type": "application/json" });
+    case "parseLeakTeam":
+      return raw(200, TEAM + " x", { "content-type": "application/json" });
+    case "parseLeakToken":
+      return raw(200, TOKEN + " x", { "content-type": "application/json" });
+    case "parseLeakBoth":
+      return raw(200, TOKEN + " " + TEAM, { "content-type": "application/json" });
     case "ok200empty":
       return raw(200, "", { "content-type": "application/json" });
     case "nullBody":
@@ -949,5 +955,88 @@ describe("startup configuration", () => {
     const mine = noTeam.requests.slice(before).filter((req) => req.url.includes("scope-probe"));
     expect(mine).toHaveLength(1);
     expect([...new URL(mine[0].url).searchParams.keys()].sort()).toEqual(["limit", "search"]);
+  });
+});
+
+/**
+ * A deliberately short token and team id.
+ *
+ * The only production path that puts upstream bytes into an error message which
+ * has NOT already been redacted is a 2xx body that fails to parse: vercelGet
+ * redacts before it builds an ApiError, but the JSON.parse failure on a
+ * successful response escapes as a plain Error, and formatToolError's own
+ * redactValues call is then the single thing standing between the body and the
+ * client. V8 quotes only a short window of the offending document in that
+ * SyntaxError, so a long canary would be truncated out of the message and the
+ * assertions below would pass no matter what the code did.
+ */
+const SHORT_TOKEN = "vc_leak";
+const SHORT_TEAM = "tm_leak";
+
+describe("credential redaction on the parse-failure path", () => {
+  const leaky = new Harness(
+    {
+      VERCEL_TOKEN: SHORT_TOKEN,
+      VERCEL_TEAM_ID: SHORT_TEAM,
+      VERCEL_MCP_MIN_INTERVAL_MS: "0",
+    },
+    buildPreload(SHORT_TOKEN, SHORT_TEAM),
+  );
+
+  beforeAll(async () => {
+    leaky.start();
+    const init = await leaky.initialize();
+    expect(init.result).toBeDefined();
+  }, 30_000);
+
+  afterAll(() => leaky.stop());
+
+  // Catches the team id being dropped from formatToolError's own redaction list. Every other
+  // route to the client is redacted a second time inside vercelGet, so this is the one
+  // black-box path on which that call is load-bearing.
+  it("redacts the team id out of a 2xx body that fails to parse", async () => {
+    const text = errorTextOf(await leaky.callTool("list_projects", { search: "parseLeakTeam" }));
+    // The placeholder is the proof that the quoted body really did reach the formatter: if the
+    // message ever stops quoting it, this fails loudly instead of passing vacuously.
+    expect(text).toContain("[redacted]");
+    expect(text).not.toContain(SHORT_TEAM);
+  });
+
+  // Same defect on the token half of the same redaction list.
+  it("redacts the token out of a 2xx body that fails to parse", async () => {
+    const text = errorTextOf(await leaky.callTool("get_project", { idOrName: "parseLeakToken" }));
+    expect(text).toContain("[redacted]");
+    expect(text).not.toContain(SHORT_TOKEN);
+  });
+
+  // Catches a redaction that stops after the first match, leaving the second credential in a
+  // message that carries both.
+  it("redacts both credentials from one unparseable body", async () => {
+    const text = errorTextOf(await leaky.callTool("list_deployments", { projectId: "parseLeakBoth" }));
+    expect(text.match(/\[redacted\]/g) ?? []).toHaveLength(2);
+    expect(text).not.toContain(SHORT_TOKEN);
+    expect(text).not.toContain(SHORT_TEAM);
+    expect(text).toContain("Unexpected error");
+  });
+
+  // The whole-channel version: no stdout frame produced while these failures are served may
+  // carry either credential, in the text content or anywhere else in the envelope.
+  it("keeps both credentials off stdout across every parse-failure call", async () => {
+    const firstLine = leaky.stdoutLines.length;
+    for (const [tool, args] of [
+      ["list_projects", { search: "parseLeakTeam" }],
+      ["list_projects", { search: "parseLeakToken" }],
+      ["get_deployment", { idOrUrl: "parseLeakBoth" }],
+      ["get_project", { idOrName: "parseLeakBoth" }],
+    ] as const) {
+      await leaky.callTool(tool, args);
+    }
+    const produced = leaky.stdoutLines.slice(firstLine);
+    expect(produced.length).toBeGreaterThanOrEqual(4);
+    for (const line of produced) {
+      expect((JSON.parse(line) as { jsonrpc?: string }).jsonrpc, line.slice(0, 200)).toBe("2.0");
+      expect(line, line.slice(0, 200)).not.toContain(SHORT_TOKEN);
+      expect(line, line.slice(0, 200)).not.toContain(SHORT_TEAM);
+    }
   });
 });

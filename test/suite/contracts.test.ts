@@ -518,6 +518,59 @@ describe("published tool schemas", () => {
     }
   });
 
+  it("promises no pagination in any tool title or description", async () => {
+    // Catches the prose the model reads offering a second page the schema cannot express;
+    // a different surface from the schema scan above, which never looks at the text fields.
+    for (const tool of team.tools) {
+      const prose = `${tool.title ?? ""} ${tool.description ?? ""}`;
+      expect(prose, tool.name).not.toMatch(/hasMore|nextCursor|cursor|next page|paginat/i);
+    }
+  });
+
+  it("closes the list envelope to exactly pageCount, items and receipt", async () => {
+    // Catches a field added to the page envelope itself (hasMore, nextCursor, total) by name-independent
+    // key comparison, so a paging field that dodges the vocabulary scan above is still caught.
+    for (const name of LIST_TOOLS) {
+      const out = team.tool(name).outputSchema!;
+      expect(out.type, name).toBe("object");
+      expect(out.additionalProperties, name).toBe(false);
+      expect(Object.keys(out.properties ?? {}).sort(), name).toEqual([
+        "items",
+        "pageCount",
+        "receipt",
+      ]);
+      expect(out.required?.slice().sort(), name).toEqual(["items", "pageCount", "receipt"]);
+      expect(out.properties?.items?.type, name).toBe("array");
+      expect(out.properties?.pageCount?.type, name).toBe("integer");
+      expect(out.properties?.pageCount?.minimum, name).toBe(0);
+    }
+  });
+
+  it("closes the single-item envelope to exactly item and receipt", async () => {
+    // Same defect on the item tools: an envelope field appearing beside the projected item.
+    for (const name of ITEM_TOOLS) {
+      const out = team.tool(name).outputSchema!;
+      expect(out.type, name).toBe("object");
+      expect(out.additionalProperties, name).toBe(false);
+      expect(Object.keys(out.properties ?? {}).sort(), name).toEqual(["item", "receipt"]);
+      expect(out.required?.slice().sort(), name).toEqual(["item", "receipt"]);
+    }
+  });
+
+  it("returns a list payload whose own keys match the published envelope", async () => {
+    // The runtime half of the envelope contract: a field added to the response but not to the
+    // schema (or the reverse) makes the two halves disagree, which is what a strict client trips on.
+    for (const [name, args] of [
+      ["list_projects", { search: "demo" }],
+      ["list_deployments", {}],
+    ] as const) {
+      const structured = expectToolSuccess(await team.call(name, args), name);
+      expect(Object.keys(structured).sort(), name).toEqual(["items", "pageCount", "receipt"]);
+      const declared = Object.keys(team.tool(name).outputSchema?.properties ?? {}).sort();
+      expect(Object.keys(structured).sort(), name).toEqual(declared);
+    }
+  });
+
   it("annotates all four tools read-only with no write hint", async () => {
     // Catches a tool shipping without the read-only hints, which is what a host uses to skip an approval prompt.
     for (const tool of team.tools) {
