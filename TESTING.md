@@ -5,7 +5,7 @@ How this server is validated. Everything below is reproducible from a clean clon
 
 ## Test suite
 
-Three files, run with vitest.
+Four files, run with vitest.
 
 - `test/vercel.test.ts`: the API client. Configuration handling, credential redaction
   (token and team id, at both the request site and the client boundary), error shaping and
@@ -50,6 +50,20 @@ Three files, run with vitest.
   and names the missing field `idOrName`; every stdout line is a JSON-RPC frame; the
   startup banner goes to stderr and never to stdout; and no tool-call response frame (the
   successful calls and the 403 error) contains the configured token or team id.
+  The session is opened as a 2025-06-18 client, which is the era `serveStdio` pins for
+  any opening `initialize`.
+- `test/stdio-era.test.ts`: the same built server as a black box on the other protocol
+  era. Spawns `dist/index.js` with no fetch stub (nothing here reaches the network) and
+  drives hand-written frames that each carry a `params._meta` envelope claiming protocol
+  revision `2026-07-28`; no client library is involved. Asserts: `server/discover` is
+  answered rather than refused, and reports `supportedVersions` of exactly
+  `["2026-07-28"]`, the tool capability, `resultType: "complete"`, and the server identity
+  under `_meta["io.modelcontextprotocol/serverInfo"]`; `tools/list` on that era returns the
+  same four tools, each with an `outputSchema`, and pins the connection to it; a 2025
+  `initialize` sent on the pinned connection is then refused with `-32022` carrying
+  `data.supported` of `["2026-07-28"]`, which is the frame the pre-`serveStdio` wiring
+  could not produce; every stdout line is a JSON-RPC frame; and the startup banner goes to
+  stderr and never to stdout.
 
 ## Beyond the suite
 
