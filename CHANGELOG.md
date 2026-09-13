@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking:** `engines.node` moves from `>=18` to `>=20`. The
+  `@modelcontextprotocol/server` 2.0 line requires Node 20, so the
+  published package no longer installs cleanly on Node 18. Consumers
+  still on Node 18 must upgrade Node or stay on 0.2.0.
+- The server is built against the `@modelcontextprotocol` 2.0 SDK line.
+  `@modelcontextprotocol/server` (root barrel plus the `/stdio` subpath)
+  replaces `@modelcontextprotocol/sdk` for `McpServer`,
+  `ToolAnnotations`, and `StdioServerTransport`. Two consequences are
+  visible on the wire: tool schemas are emitted under JSON Schema
+  2020-12 rather than draft-07, and a call with invalid arguments comes
+  back as a tool result with `isError: true` instead of a JSON-RPC
+  `-32602` error frame. A client that matched on the `-32602` code must
+  read the tool result instead.
+- `@modelcontextprotocol/sdk` 1.x stays in `devDependencies` only. The
+  packed-consumer smoke test drives this server with a v1 client, which
+  is the backward-compatibility proof.
+- `@modelcontextprotocol/core` is no longer a direct dependency. It is
+  still installed, as an exact-pinned dependency of
+  `@modelcontextprotocol/server` 2.0.0.
+
 ## [0.2.0] - 2026-07-10
 
 ### Changed
@@ -60,5 +84,6 @@ Initial release.
 - Test suite covering the above (35 tests), run on Linux and Windows against
   Node 22 and 24 in CI.
 
+[Unreleased]: https://github.com/addiplus/vercel-deployment-mcp/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/addiplus/vercel-deployment-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/addiplus/vercel-deployment-mcp/releases/tag/v0.1.0

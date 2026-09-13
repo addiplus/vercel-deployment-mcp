@@ -50,7 +50,8 @@ npm test
 ```
 
 Building and testing this repo requires Node 22+ (CI runs 22 and 24); the
-published package runs on Node >=18 per `engines`.
+published package runs on Node >=20 per `engines`, the floor set by the
+`@modelcontextprotocol/server` 2.0 line.
 
 ## Configuration
 

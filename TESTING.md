@@ -45,8 +45,9 @@ Three files, run with vitest.
   `receipt.appliedFilters` is tampered into a combination the schema doesn't allow; the
   list tools' structured output has no `hasMore` or `nextCursor` property; an upstream 403
   comes back as `isError: true` with no `structuredContent`; a call missing a required
-  argument produces a JSON-RPC `-32602` invalid-params result, whether the SDK returns it
-  as a top-level error or a shaped tool error; every stdout line is a JSON-RPC frame; the
+  argument comes back as a tool result and not as a JSON-RPC error frame: no top-level
+  `error` member, `isError: true`, and text that reports an argument validation failure
+  and names the missing field `idOrName`; every stdout line is a JSON-RPC frame; the
   startup banner goes to stderr and never to stdout; and no tool-call response frame (the
   successful calls and the 403 error) contains the configured token or team id.
 

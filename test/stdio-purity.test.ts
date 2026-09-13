@@ -270,22 +270,22 @@ describe("stdio purity", () => {
         });
         await waitForId(responses, 8, 20_000, () => stderrBuffer);
         const invalid = responses.get(8) as {
-          error?: { code?: number };
+          error?: unknown;
           result?: { isError?: boolean; content?: Array<{ text?: string }> };
         };
-        if (invalid.error) {
-          expect(invalid.error.code).toBe(-32602);
-        } else {
-          // SDK 2.0 reports invalid tool arguments as a tool result, not a JSON-RPC
-          // error frame, and its message no longer carries the -32602 code. Pin the
-          // parts of the contract that still identify the failure precisely: the
-          // error flag, the tool that rejected the call, and the offending field.
-          expect(invalid.result?.isError).toBe(true);
-          expect(invalid.result?.content?.[0]?.text).toContain(
-            "Invalid arguments for tool get_project",
-          );
-          expect(invalid.result?.content?.[0]?.text).toContain("idOrName");
-        }
+        // The 2.0 SDK reports invalid tool arguments as a tool result, not as a
+        // JSON-RPC error frame, so -32602 is not on the wire for this call and a
+        // branch on invalid.error would never run. Pin what is observable: no error
+        // frame, the result flagged as an error, text that reports an argument
+        // validation failure, and the offending field. "idOrName" is this repo's own
+        // schema key (src/tools.ts), so it is pinned exactly; the sentence around it
+        // is written inside @modelcontextprotocol/server, so it is matched loosely
+        // and an upstream reword cannot turn this suite red on its own.
+        expect(invalid.error).toBeUndefined();
+        expect(invalid.result?.isError).toBe(true);
+        const invalidText = invalid.result?.content?.[0]?.text ?? "";
+        expect(invalidText).toMatch(/Invalid arguments|validation error/i);
+        expect(invalidText).toContain("idOrName");
 
         for (const line of stdoutLines) expect(JSON.parse(line).jsonrpc).toBe("2.0");
         expect(stderrBuffer).toContain("vercel-deployment-mcp ready (stdio)");
