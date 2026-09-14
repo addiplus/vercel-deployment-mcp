@@ -1285,6 +1285,29 @@ describe("transport failures", () => {
     },
     30_000,
   );
+
+  it(
+    "leaves with status 0 when stdin closes after an oversized frame",
+    async () => {
+      const server = await startServer();
+      try {
+        await server.initialize();
+        await writeUnterminatedFrame(server, 12);
+        server.child.stdin.write("\n");
+        const ping = await server.rpc(50, "ping");
+        expect(ping.result).toBeDefined();
+        server.child.stdin.end();
+        const exit = await server.waitForExit(20_000);
+        // A dropped frame is refused, not fatal: the ordinary end of a session
+        // after one still reads as an ordinary end.
+        expect(exit.code).toBe(0);
+        expect(exit.signal).toBeNull();
+      } finally {
+        server.stop();
+      }
+    },
+    40_000,
+  );
 });
 
 describe("the initialization handshake", () => {

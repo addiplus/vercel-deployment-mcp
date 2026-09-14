@@ -141,6 +141,15 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   the one value both readings agree on, and a date delivered as text is
   unaffected.
 
+- A message above the frame limit no longer ends the process. It is dropped
+  before it reaches the transport, one line on stderr says so, and the
+  connection keeps answering; previously the transport's read buffer refused
+  the message, closed the connection, and the process left with status 0,
+  which reads to a supervisor as an intentional shutdown. The transport's own
+  buffer limit is set to the stated message limit plus the one byte its
+  delimiter takes, so the two agree and a message of exactly the stated size
+  is served.
+
 ### Security
 
 - Redaction of the configured token and team id in error text replaced
