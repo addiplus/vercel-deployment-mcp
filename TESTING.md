@@ -69,7 +69,9 @@ Four files, run with vitest.
   whose only predecessor is an `initialized` notification that no `initialize` request came
   before is refused the same way, with no upstream request, and the handshake still completes
   normally afterwards; a request written in the same chunk as the notification of a real
-  handshake is served rather than refused; closing the
+  handshake is served rather than refused, and so is a call written in the same chunk as
+  the whole handshake, `initialize` request included, with each response carrying its own
+  request's id and the handshake answered first; closing the
   host's read end of stdout produces one transport error line on stderr and exit status 0,
   with no Node stack and no installation paths; a frame above the 10485760-byte limit is
   dropped with exactly one stderr line naming the limit, and the next request is answered

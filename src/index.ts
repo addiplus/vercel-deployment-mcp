@@ -76,16 +76,24 @@ process.stdout.on("error", (err: Error) => {
 });
 
 // Requests that are legal before the handshake finishes. Everything else waits.
-const OPEN_BEFORE_INITIALIZE = new Set(["initialize", "ping"]);
+const INITIALIZE_REQUEST = "initialize";
+const OPEN_BEFORE_INITIALIZE = new Set([INITIALIZE_REQUEST, "ping"]);
 const INITIALIZED_NOTIFICATION = "notifications/initialized";
 const PRE_INITIALIZE_MESSAGE = "Received a request before initialization completed.";
 
 let initialized = false;
-// Both halves of the handshake are required, and in that order. The server
-// records the client's capabilities only while answering a real initialize
-// request, so that is the half a peer cannot simply assert; an initialized
+// Both halves of the handshake are required, and in that order. An initialize
+// request is the half a peer cannot simply assert, so an initialized
 // notification that arrives before any initialize ends nothing.
-const initializeAnswered = () => server.server.getClientCapabilities() !== undefined;
+//
+// The request is counted here, as its frame goes past, rather than read back
+// from the server afterwards: the server records the client's capabilities a
+// turn later than the frame arrives, and a client that writes its whole
+// handshake in one go does not wait that long. The server's own record still
+// counts, which covers a request this wrapper never saw.
+let initializeRequested = false;
+const initializeAnswered = () =>
+  initializeRequested || server.server.getClientCapabilities() !== undefined;
 const endInitialization = () => {
   if (initializeAnswered()) initialized = true;
 };
@@ -138,6 +146,7 @@ transport.onmessage = (message) => {
   const frame = message as { method?: unknown; id?: unknown };
   const isRequest =
     typeof frame.method === "string" && frame.id !== undefined && frame.id !== null;
+  if (isRequest && frame.method === INITIALIZE_REQUEST) initializeRequested = true;
   // Initialization ends as this notification goes past, rather than a turn
   // later when its handler runs, so a client that puts its first request in the
   // same write as the notification is not refused.

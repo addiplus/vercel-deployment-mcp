@@ -38,6 +38,7 @@ interface TestServer {
   waitForFrame(id: number, timeoutMs?: number): Promise<RpcFrame>;
   initialize(): Promise<void>;
   waitForExit(timeoutMs: number): Promise<Exit>;
+  answeredIds(): number[];
   stderr(): string;
   requests(): string[];
   stop(): void;
@@ -93,6 +94,7 @@ async function startServer(extraEnv: Record<string, string> = {}): Promise<TestS
   );
 
   const frames = new Map<number, RpcFrame>();
+  const answered: number[] = [];
   let stdoutBuffer = "";
   let stderrBuffer = "";
   let exit: Exit | undefined;
@@ -106,7 +108,10 @@ async function startServer(extraEnv: Record<string, string> = {}): Promise<TestS
       if (line.trim().length === 0) continue;
       try {
         const parsed = JSON.parse(line) as RpcFrame;
-        if (parsed.id !== undefined) frames.set(parsed.id, parsed);
+        if (parsed.id !== undefined) {
+          if (!frames.has(parsed.id)) answered.push(parsed.id);
+          frames.set(parsed.id, parsed);
+        }
       } catch {
         /* a non-JSON line is not a response; the purity suite covers that */
       }
@@ -158,6 +163,9 @@ async function startServer(extraEnv: Record<string, string> = {}): Promise<TestS
         () => `the server was still running; stderr so far: ${stderrBuffer}`,
       );
       return exit!;
+    },
+    answeredIds() {
+      return [...answered];
     },
     stderr() {
       return stderrBuffer;
@@ -349,6 +357,55 @@ describe("the initialization handshake", () => {
         const pipelined = await server.waitForFrame(2);
         expect(pipelined.error).toBeUndefined();
         expect(pipelined.result?.tools).toHaveLength(4);
+      } finally {
+        server.stop();
+      }
+    },
+    20_000,
+  );
+
+  it(
+    "serves a call written in the same chunk as the whole handshake",
+    async () => {
+      const server = await startServer();
+      try {
+        // A client that never waits for the initialize response: the request,
+        // the notification and the first call all leave in one write.
+        server.child.stdin.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-06-18",
+              capabilities: {},
+              clientInfo: { name: "protocol-suite", version: "0.0.0" },
+            },
+          }) +
+            "\n" +
+            JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) +
+            "\n" +
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 2,
+              method: "tools/call",
+              params: { name: "get_project", arguments: { idOrName: "one_write" } },
+            }) +
+            "\n",
+        );
+
+        const call = await server.waitForFrame(2);
+        expect(call.error).toBeUndefined();
+        expect(call.result?.isError).not.toBe(true);
+
+        const handshake = await server.waitForFrame(1);
+        expect(handshake.result).toBeDefined();
+
+        // Each response carries its own request's id, and the handshake is
+        // answered before the call that followed it.
+        expect(server.answeredIds()).toEqual([1, 2]);
+        expect(server.requests()).toHaveLength(1);
+        expect(server.requests()[0]).toContain("one_write");
       } finally {
         server.stop();
       }

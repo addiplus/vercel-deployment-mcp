@@ -83,10 +83,12 @@ that further identical reports are suppressed.
 
 `initialize` and `ping` are answered at any time. `tools/list` and `tools/call`
 are answered only once the client has completed the initialization handshake:
-an `initialize` request the server has answered, followed by
-`notifications/initialized`. Both halves are required, so the notification on
-its own completes nothing. Before that, those two methods are refused with
-JSON-RPC error `-32600` and no Vercel API request is made.
+an `initialize` request, followed by `notifications/initialized`. Both halves
+are required, so the notification on its own completes nothing. A client that
+writes both halves and its first call in a single write is served, rather than
+being refused for not waiting for the initialize response. Before the
+handshake, those two methods are refused with JSON-RPC error `-32600` and no
+Vercel API request is made.
 
 Example client configuration (Claude Desktop / Claude Code):
 
