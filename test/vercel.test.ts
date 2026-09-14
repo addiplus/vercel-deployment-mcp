@@ -226,7 +226,7 @@ describe("request construction", () => {
     expect(data.projects).toEqual([]);
   });
 
-  it("non-OK responses become bounded, scrubbed ApiErrors", async () => {
+  it("non-OK responses become ApiErrors carrying the upstream status and code", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({ error: { code: "forbidden", message: `denied for ${TOKEN}` } }), {
         status: 403,
@@ -237,14 +237,15 @@ describe("request construction", () => {
     ).rejects.toSatisfy((e: unknown) => {
       expect(e).toBeInstanceOf(ApiError);
       expect((e as ApiError).status).toBe(403);
-      expect((e as ApiError).message).not.toContain(TOKEN);
+      expect((e as ApiError).code).toBe("forbidden");
+      expect(formatToolError(e, { token: TOKEN })).not.toContain(TOKEN);
       return true;
     });
   });
 });
 
 describe("size bounds", () => {
-  it("bounds a very long API error message to 400 characters", async () => {
+  it("bounds client-visible error text to 500 characters", async () => {
     const longMessage = "x".repeat(1000);
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({ error: { code: "server_error", message: longMessage } }), {
@@ -258,7 +259,6 @@ describe("size bounds", () => {
       caught = e;
     }
     expect(caught).toBeInstanceOf(ApiError);
-    expect((caught as ApiError).message.length).toBeLessThanOrEqual(400);
     const formatted = formatToolError(caught, { token: TOKEN });
     expect(formatted.length).toBeLessThanOrEqual(500);
   });
@@ -275,7 +275,7 @@ describe("size bounds", () => {
     expect(genericOut).not.toContain("team_secret_xyz9");
   });
 
-  it("scrubs the team id at vercelGet, alongside the token", async () => {
+  it("scrubs the token and the team id from the formatted error", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(
         JSON.stringify({
@@ -293,8 +293,9 @@ describe("size bounds", () => {
       ),
     ).rejects.toSatisfy((e: unknown) => {
       expect(e).toBeInstanceOf(ApiError);
-      expect((e as ApiError).message).not.toContain(TOKEN);
-      expect((e as ApiError).message).not.toContain("team_secret_xyz9");
+      const formatted = formatToolError(e, { token: TOKEN, teamId: "team_secret_xyz9" });
+      expect(formatted).not.toContain(TOKEN);
+      expect(formatted).not.toContain("team_secret_xyz9");
       return true;
     });
   });
@@ -302,7 +303,7 @@ describe("size bounds", () => {
   // The API client hands its configured values to the scrubber as [token, teamId], so the
   // list order is fixed and only which value contains the other can vary. Both directions
   // are pinned here, on the path that actually carries upstream text back to a client.
-  it("scrubs overlapping configured values at vercelGet when the team id holds the token", async () => {
+  it("scrubs overlapping configured values in the formatted error when the team id holds the token", async () => {
     const token = "abc123";
     const teamId = "team_abc123xyz";
     const fetchMock = vi.fn(async () =>
@@ -315,16 +316,16 @@ describe("size bounds", () => {
       vercelGet({ token, teamId }, "/v9/projects", {}, fetchMock as unknown as typeof fetch),
     ).rejects.toSatisfy((e: unknown) => {
       expect(e).toBeInstanceOf(ApiError);
-      const message = (e as ApiError).message;
-      expect(message).toContain("[redacted]");
-      expect(message).not.toContain(token);
-      expect(message).not.toContain(teamId);
-      expect(message).not.toContain("xyz");
+      const formatted = formatToolError(e, { token, teamId });
+      expect(formatted).toContain("[redacted]");
+      expect(formatted).not.toContain(token);
+      expect(formatted).not.toContain(teamId);
+      expect(formatted).not.toContain("xyz");
       return true;
     });
   });
 
-  it("scrubs overlapping configured values at vercelGet when the token holds the team id", async () => {
+  it("scrubs overlapping configured values in the formatted error when the token holds the team id", async () => {
     const token = "vc_abc123xyz";
     const teamId = "abc123";
     const fetchMock = vi.fn(async () =>
@@ -337,18 +338,18 @@ describe("size bounds", () => {
       vercelGet({ token, teamId }, "/v9/projects", {}, fetchMock as unknown as typeof fetch),
     ).rejects.toSatisfy((e: unknown) => {
       expect(e).toBeInstanceOf(ApiError);
-      const message = (e as ApiError).message;
-      expect(message).toContain("[redacted]");
-      expect(message).not.toContain(token);
-      expect(message).not.toContain(teamId);
-      expect(message).not.toContain("xyz");
+      const formatted = formatToolError(e, { token, teamId });
+      expect(formatted).toContain("[redacted]");
+      expect(formatted).not.toContain(token);
+      expect(formatted).not.toContain(teamId);
+      expect(formatted).not.toContain("xyz");
       return true;
     });
   });
 
   // Crossing values on the path that actually carries upstream text back to a client:
   // "abc" and "bcd" both sit in "abcd" without either one containing the other.
-  it("scrubs crossing configured values at vercelGet and through formatToolError", async () => {
+  it("scrubs crossing configured values in the formatted error", async () => {
     const token = "abc";
     const teamId = "bcd";
     const fetchMock = vi.fn(async () =>
@@ -363,11 +364,67 @@ describe("size bounds", () => {
       caught = e;
     }
     expect(caught).toBeInstanceOf(ApiError);
-    expect((caught as ApiError).message).toBe("denied [redacted]");
     expect(formatToolError(caught, { token, teamId })).toBe(
       "Vercel API error (HTTP 403, forbidden): denied [redacted]. Check that the configured " +
         "credential is valid and has access to this project or team.",
     );
+  });
+
+  it("leaves the redaction marker intact when a configured value is a substring of it", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ error: { code: "internal_server_error", message: "internal_server_error" } }),
+        { status: 500 },
+      ),
+    );
+    let caught: unknown;
+    try {
+      await vercelGet({ token: "a" }, "/v9/projects", {}, fetchMock as unknown as typeof fetch);
+    } catch (e) {
+      caught = e;
+    }
+    const formatted = formatToolError(caught, { token: "a" });
+    expect(formatted).toContain("[redacted]");
+    expect(formatted).not.toContain("[red[redacted]cted]");
+  });
+
+  it("replaces a configured value that straddles the length cut", async () => {
+    const straddler = "STRADDLE_CANARY_0123456789";
+    const message = `${"y".repeat(450)}${straddler}${"z".repeat(50)}`;
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ error: { code: "server_error", message } }), { status: 500 }),
+    );
+    let caught: unknown;
+    try {
+      await vercelGet({ token: straddler }, "/v9/projects", {}, fetchMock as unknown as typeof fetch);
+    } catch (e) {
+      caught = e;
+    }
+    const formatted = formatToolError(caught, { token: straddler });
+    expect(formatted.length).toBe(500);
+    expect(formatted).not.toContain("STRADDLE");
+  });
+
+  it("keeps the whole credential hint on an upstream message that fills the bound", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ error: { code: "forbidden", message: "M".repeat(600) } }), {
+        status: 403,
+      }),
+    );
+    let caught: unknown;
+    try {
+      await vercelGet({ token: TOKEN }, "/v9/projects", {}, fetchMock as unknown as typeof fetch);
+    } catch (e) {
+      caught = e;
+    }
+    const formatted = formatToolError(caught, { token: TOKEN });
+    expect(formatted.length).toBeLessThanOrEqual(500);
+    expect(formatted).toContain("MMMM");
+    // The cut text still ends as a sentence, so the hint reads as its own.
+    expect(formatted).toContain("M. Check that");
+    expect(formatted.endsWith(
+      " Check that the configured credential is valid and has access to this project or team.",
+    )).toBe(true);
   });
 });
 
@@ -501,6 +558,35 @@ describe("resolveThrottleOptions", () => {
     expect(
       resolveThrottleOptions({ VERCEL_MCP_MAX_CONCURRENT: "0" } as NodeJS.ProcessEnv).maxConcurrent,
     ).toBe(1);
+  });
+
+  it("caps a minimum interval above the ceiling and says so on stderr", () => {
+    const reported = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const options = resolveThrottleOptions({
+        VERCEL_MCP_MIN_INTERVAL_MS: "1e9",
+      } as NodeJS.ProcessEnv);
+      expect(options.minIntervalMs).toBe(60_000);
+      expect(reported).toHaveBeenCalledTimes(1);
+      const line = String(reported.mock.calls[0][0]);
+      expect(line).toContain("VERCEL_MCP_MIN_INTERVAL_MS");
+      expect(line).toContain("60000");
+    } finally {
+      reported.mockRestore();
+    }
+  });
+
+  it("leaves a value at the ceiling alone and stays quiet", () => {
+    const reported = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(
+        resolveThrottleOptions({ VERCEL_MCP_MIN_INTERVAL_MS: "60000" } as NodeJS.ProcessEnv)
+          .minIntervalMs,
+      ).toBe(60_000);
+      expect(reported).not.toHaveBeenCalled();
+    } finally {
+      reported.mockRestore();
+    }
   });
 });
 
@@ -698,7 +784,7 @@ describe("429 Retry-After handling in vercelGet", () => {
     ).rejects.toSatisfy((e: unknown) => {
       expect(e).toBeInstanceOf(ApiError);
       expect((e as ApiError).status).toBe(429);
-      expect((e as ApiError).message).not.toContain(TOKEN);
+      expect(formatToolError(e, { token: TOKEN })).not.toContain(TOKEN);
       return true;
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
