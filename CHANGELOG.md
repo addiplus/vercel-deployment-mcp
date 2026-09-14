@@ -53,6 +53,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   segment, so the request went to a different endpoint while the result's
   receipt still reported the documented one.
 
+- `VERCEL_MCP_MIN_INTERVAL_MS` is capped at 60000. A larger value was
+  accepted as written, which spaced requests so far apart that the server
+  answered one tool call and then never answered another, while `ping` and
+  `tools/list` kept reporting it healthy and nothing was written to
+  stderr. A value above the cap is now reduced to it, and one line on
+  stderr says so.
+
 - A timestamp the server cannot read no longer fails the whole page. An
   unreadable `updatedAt` or `createdAt` is omitted from that one item and
   the rest of the page is returned, where the whole call previously ended

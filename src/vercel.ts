@@ -121,6 +121,8 @@ export interface ThrottleOptions {
 
 const DEFAULT_MIN_INTERVAL_MS = 250;
 const DEFAULT_MAX_CONCURRENT = 4;
+/** A politeness throttle has no reason to space requests further apart than this. */
+const MAX_MIN_INTERVAL_MS = 60_000;
 const MAX_AUTO_RETRY_AFTER_SECONDS = 10;
 
 /** A finite, non-negative number parsed from a trimmed env var, or undefined if unusable. */
@@ -136,8 +138,15 @@ function parseFiniteNonNegative(raw: string | undefined): number | undefined {
 /** Parse throttle env vars defensively: bad input falls back to defaults, never throws. */
 export function resolveThrottleOptions(env: NodeJS.ProcessEnv = process.env): ThrottleOptions {
   const parsedMinInterval = parseFiniteNonNegative(env.VERCEL_MCP_MIN_INTERVAL_MS);
-  const minIntervalMs =
+  let minIntervalMs =
     parsedMinInterval !== undefined ? Math.floor(parsedMinInterval) : DEFAULT_MIN_INTERVAL_MS;
+  if (minIntervalMs > MAX_MIN_INTERVAL_MS) {
+    console.error(
+      `vercel-deployment-mcp: VERCEL_MCP_MIN_INTERVAL_MS ${minIntervalMs} is above the ` +
+        `${MAX_MIN_INTERVAL_MS} ms ceiling, so ${MAX_MIN_INTERVAL_MS} ms is used.`,
+    );
+    minIntervalMs = MAX_MIN_INTERVAL_MS;
+  }
 
   const parsedMaxConcurrent = parseFiniteNonNegative(env.VERCEL_MCP_MAX_CONCURRENT);
   const maxConcurrent =

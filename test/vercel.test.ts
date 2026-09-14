@@ -502,6 +502,35 @@ describe("resolveThrottleOptions", () => {
       resolveThrottleOptions({ VERCEL_MCP_MAX_CONCURRENT: "0" } as NodeJS.ProcessEnv).maxConcurrent,
     ).toBe(1);
   });
+
+  it("caps a minimum interval above the ceiling and says so on stderr", () => {
+    const reported = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const options = resolveThrottleOptions({
+        VERCEL_MCP_MIN_INTERVAL_MS: "1e9",
+      } as NodeJS.ProcessEnv);
+      expect(options.minIntervalMs).toBe(60_000);
+      expect(reported).toHaveBeenCalledTimes(1);
+      const line = String(reported.mock.calls[0][0]);
+      expect(line).toContain("VERCEL_MCP_MIN_INTERVAL_MS");
+      expect(line).toContain("60000");
+    } finally {
+      reported.mockRestore();
+    }
+  });
+
+  it("leaves a value at the ceiling alone and stays quiet", () => {
+    const reported = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(
+        resolveThrottleOptions({ VERCEL_MCP_MIN_INTERVAL_MS: "60000" } as NodeJS.ProcessEnv)
+          .minIntervalMs,
+      ).toBe(60_000);
+      expect(reported).not.toHaveBeenCalled();
+    } finally {
+      reported.mockRestore();
+    }
+  });
 });
 
 describe("Throttle", () => {
