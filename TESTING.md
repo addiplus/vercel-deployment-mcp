@@ -38,7 +38,7 @@ Eight files, run with vitest.
   instead of silently widening to an unfiltered list (asserted by parsing against each
   tool's captured input schema),
   while a non-empty value still produces the matching `receipt.appliedFilters`;
-  string arguments are bounded above as well (`search` at 4096 characters, `projectId`,
+  string arguments are bounded above as well (`search` at 4096 UTF-16 code units, `projectId`,
   `state`, `idOrName` and `idOrUrl` at 512, with the bound published in the input schema);
   an identifier made only of dots is refused, and every accepted identifier leaves exactly
   one path segment under the tool's endpoint; an unreadable timestamp is omitted from that

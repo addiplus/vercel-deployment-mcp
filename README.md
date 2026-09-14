@@ -78,11 +78,20 @@ surfaced as an error on the first attempt.
 
 | Limit | Value |
 | --- | --- |
-| Longest `search` value | 4096 characters |
-| Longest `projectId`, `state`, `idOrName`, `idOrUrl` value | 512 characters |
+| Longest `search` value | 4096 UTF-16 code units |
+| Longest `projectId`, `state`, `idOrName`, `idOrUrl` value | 512 UTF-16 code units |
 | Largest accepted protocol frame | 10485760 bytes |
 | Highest accepted `VERCEL_MCP_MIN_INTERVAL_MS` | 60000 |
 | Most transport reports written to stderr | 100 |
+
+The two argument limits are counted in UTF-16 code units, which is what a
+JavaScript string's length counts: not codepoints, and not bytes. A character
+outside the Basic Multilingual Plane costs two code units and four bytes, which
+becomes twelve characters once percent-encoded, so a `search` value sitting on
+the limit and made entirely of such characters produces an outbound URL of
+around 24600 characters, about six times the number in the table. That worst
+case is fixed and computable per field rather than unbounded, and it stays far
+below the frame limit.
 
 The frame limit counts the message and not the newline that delimits it, so a
 message of exactly 10485760 bytes is accepted. Everything before that newline is
