@@ -8,14 +8,19 @@ How this server is validated. Everything below is reproducible from a clean clon
 Eight files, run with vitest.
 
 - `test/vercel.test.ts`: the API client. Configuration handling, credential redaction
-  (token and team id, at both the request site and the client boundary), error shaping and
-  size bounds (upstream messages are cut to 400 chars, client strings to 500), rate-limit
-  and auth hints, network failures, the 30-second request timeout, non-JSON error bodies,
+  (token and team id, applied once where an error becomes client-visible text, including an
+  upstream message long enough that a configured value straddles the cut), error shaping and
+  the single 500-char bound on client-visible error text, which is applied to the shaped
+  message before the fixed hint is appended so a long upstream message cannot push the hint
+  out, rate-limit and auth hints,
+  network failures, the 30-second request timeout, non-JSON error bodies,
   the hardcoded fallback for non-Error throws, the request throttle (minimum start-to-start
   spacing and the concurrency cap, both driven by an injected fake clock/sleep, no
   real-time waits), `resolveThrottleOptions` env parsing (defaults of 250ms / 4, a
   non-numeric or negative value falling back to the default, `minIntervalMs: 0` disabling
-  spacing, `maxConcurrent` flooring at 1), and the HTTP 429 retry rule: a numeric
+  spacing, `maxConcurrent` flooring at 1, a configured interval above the 60000 ms ceiling
+  being reduced to it with one line on stderr while a value at the ceiling passes
+  silently), and the HTTP 429 retry rule: a numeric
   `Retry-After` of 10 seconds or less waits that long (through the injected sleep) and
   retries exactly once, while an absent, non-numeric, or over-10 `Retry-After` does not
   retry and surfaces the 429 as-is; a retried request still redacts credentials from
@@ -31,9 +36,17 @@ Eight files, run with vitest.
   declared non-empty (`.min(1)`), so a blank string fails at the input-schema boundary
   instead of silently widening to an unfiltered list (asserted by parsing against each
   tool's captured input schema),
-  while a non-empty value still produces the matching `receipt.appliedFilters`; and a 2xx
-  body where `data.projects` or `data.deployments` is present but not an array is rejected
-  before it reaches the response mapping, as `isError: true`.
+  while a non-empty value still produces the matching `receipt.appliedFilters`;
+  string arguments are bounded above as well (`search` at 4096 characters, `projectId`,
+  `state`, `idOrName` and `idOrUrl` at 512, with the bound published in the input schema);
+  an identifier made only of dots is refused, and every accepted identifier leaves exactly
+  one path segment under the tool's endpoint; an unreadable timestamp is omitted from that
+  one item instead of failing the page, a timestamp of 0 is reported as the epoch, a numeric
+  timestamp that reads as a date before the year 2000 (a seconds-resolution value, say) is
+  omitted rather than reported while a date delivered as text from before that point is still
+  read; and
+  a 2xx body where `data.projects` or `data.deployments` is present but not an array is
+  rejected before it reaches the response mapping, as `isError: true`.
 - `test/stdio-purity.test.ts`: the built server as a black box. Spawns `dist/index.js`
   with a stubbed global `fetch` (rejecting any request outside `https://api.vercel.com` or
   with a body or a non-GET method) and runs a real initialize / tools/list / tools/call
@@ -76,8 +89,30 @@ Eight files, run with vitest.
   which a second case in the file proves by claiming the configured token as a protocol
   revision and asserting the reporter writes `[redacted]`.
 - `test/suite/`: four lenses on the same built server, all hand-written frames, no client
-  library. `protocol.test.ts` pins protocol conformance on both eras and that the era is
-  decided per connection; `contracts.test.ts` pins what the published input and output
+  library. `protocol.test.ts` pins protocol conformance on both eras, that the era is
+  decided per connection, and the transport and handshake boundary: a tool request sent
+  before the initialization handshake completes is refused with JSON-RPC `-32600` and no
+  upstream request is made for it, while `ping` is answered throughout and the same calls
+  succeed once the handshake is done; a tool request whose only predecessor is an
+  `initialized` notification that no `initialize` request came before is refused the same
+  way, with no upstream request, and the handshake still completes normally afterwards; a
+  tool request whose handshake rests on an `initialize` the server rejected is refused the
+  same way, so only a request the server can answer counts as the first half; a request
+  written in the same chunk as the notification of a real handshake is served rather than
+  refused, and so is a call written in the same chunk as the whole handshake, `initialize`
+  request included, with each response carrying its own request's id and the handshake
+  answered first; closing the host's read end of stdout produces one transport error line
+  on stderr and exit status 0, with no Node stack and no installation paths; one 128 MB
+  frame with no newline in it, written no faster than the server takes it in, is dropped
+  with exactly one stderr line naming the 10485760-byte limit, and the request after the
+  newline that ends that frame is answered normally, which is what ties the limit to the
+  stream the transport reads rather than to the stderr line alone; a message of exactly
+  10485760 bytes, the newline that ends its frame not counted, is answered with nothing
+  written to stderr while the same message one byte longer is dropped and the request after
+  it is still answered, which pins the limit to the message rather than to the message plus
+  its delimiter; and three oversized frames in a row produce two lines rather than three,
+  the second saying that further identical reports are suppressed.
+  `contracts.test.ts` pins what the published input and output
   schemas promise and whether the structured content keeps that promise; `upstream.test.ts`
   pins upstream failure modes and credential safety; `invariants.test.ts` pins what must
   not drift between calls, between connections, between a payload and its own
@@ -92,6 +127,12 @@ Eight files, run with vitest.
   missing required argument, and a call with no configuration at all.
 - End-to-end against the live Vercel API from a real stdio client: all four tools return
   correct live data; diagnostics stay on stderr.
+- Memory check, run by hand rather than in the suite because only the reading is not
+  portable; the effect of the limit on what the transport receives is in the suite:
+  write 256 MB to stdin with no newline and watch resident memory rise over the first
+  hundred megabytes or so and then stop, well short of tracking the input, while one line on
+  stderr reports the dropped frame. A sample run here went from 85 MB before the write to
+  160 MB after 200 MB of input, with the last 60 MB of input adding 2 MB.
 - CI runs build + tests on ubuntu-latest and windows-latest with Node 20, 22 and 24, and
   the packed-consumer smoke on ubuntu-latest with the same three versions. Node 20 is the
   floor `engines.node` declares, so the declared floor is a tested one.

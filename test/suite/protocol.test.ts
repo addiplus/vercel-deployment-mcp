@@ -38,6 +38,7 @@ const pkg = createRequire(import.meta.url)("../../package.json") as {
 const SERVER_ENTRY = fileURLToPath(new URL("../../dist/index.js", import.meta.url));
 
 /** JSON-RPC / MCP wire codes this file pins. Values come from the MCP specification. */
+const INVALID_REQUEST = -32600;
 const METHOD_NOT_FOUND = -32601;
 const INVALID_PARAMS = -32602;
 const UNSUPPORTED_PROTOCOL_VERSION = -32022;
@@ -154,6 +155,14 @@ class Session {
   send(message: unknown): this {
     this.child.stdin.write(JSON.stringify(message) + "\n");
     return this;
+  }
+
+  /** Completes the 2025 handshake: the request, its answer, then the notification. */
+  async handshake2025(id: string | number = 1, protocolVersion = "2025-06-18"): Promise<Frame> {
+    this.send(initializeFrame(id, protocolVersion));
+    const frame = await this.waitFor(id);
+    this.send({ jsonrpc: "2.0", method: "notifications/initialized" });
+    return frame;
   }
 
   /** Writes bytes verbatim, for frames JSON.stringify cannot express. */
@@ -306,8 +315,7 @@ describe("2025 era over stdio", () => {
   // invents pagination this server does not implement.
   it("returns a bare tools/list result on the 2025 era", async () => {
     const s = start();
-    s.send(initializeFrame(1));
-    await s.waitFor(1);
+    await s.handshake2025();
     s.send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
     const frame = await s.waitFor(2);
     expect(frame.error).toBeUndefined();
@@ -322,8 +330,7 @@ describe("2025 era over stdio", () => {
   // required-argument declaration a host needs to prompt for the argument.
   it("declares each tool's inputSchema as an object schema with the right required list", async () => {
     const s = start();
-    s.send(initializeFrame(1));
-    await s.waitFor(1);
+    await s.handshake2025();
     s.send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
     const frame = await s.waitFor(2);
     const tools = frame.result?.tools as Array<{
@@ -362,26 +369,30 @@ describe("2025 era over stdio", () => {
     expect(frame.result).toEqual({});
   });
 
-  // Catches a server that refuses every request until initialize has run: an opening frame
-  // with no era claim must pin the 2025 era and be served, not dropped.
-  it("serves a claim-less opening frame without a prior initialize", async () => {
+  // Catches a server that serves 2025-era tool traffic to a peer it has not
+  // negotiated with: a claim-less request is refused until the handshake is
+  // complete, and served immediately after.
+  it("refuses a claim-less tool request before the handshake and serves it after", async () => {
     const s = start();
     s.send({ jsonrpc: "2.0", id: 1, method: "ping" });
     expect((await s.waitFor(1)).result).toEqual({});
     s.send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
-    const listed = await s.waitFor(2);
-    expect((listed.result?.tools as unknown[]).length).toBe(4);
-    // The connection pinned the 2025 era, so initialize is still the handshake it answers.
+    const refused = await s.waitFor(2);
+    expect(refused.result).toBeUndefined();
+    expect(refused.error?.code).toBe(-32600);
     s.send(initializeFrame(3));
     expect((await s.waitFor(3)).result?.protocolVersion).toBe("2025-06-18");
+    s.send({ jsonrpc: "2.0", method: "notifications/initialized" });
+    s.send({ jsonrpc: "2.0", id: 4, method: "tools/list" });
+    const listed = await s.waitFor(4);
+    expect((listed.result?.tools as unknown[]).length).toBe(4);
   });
 
   // Catches an unknown method answered with a result, an internal error, or silence
   // instead of the JSON-RPC code hosts branch on.
   it("answers an unknown method with -32601 and no result member", async () => {
     const s = start();
-    s.send(initializeFrame(1));
-    await s.waitFor(1);
+    await s.handshake2025();
     s.send({ jsonrpc: "2.0", id: 2, method: "no/such/method" });
     const frame = await s.waitFor(2);
     expect(frame.result).toBeUndefined();
@@ -393,8 +404,7 @@ describe("2025 era over stdio", () => {
   // these must be method-not-found, matching the capabilities it announced.
   it("answers every unimplemented spec method with -32601", async () => {
     const s = start();
-    s.send(initializeFrame(1));
-    await s.waitFor(1);
+    await s.handshake2025();
     const methods = [
       "resources/list",
       "resources/read",
@@ -418,8 +428,7 @@ describe("2025 era over stdio", () => {
   // miss as tool output instead of the host seeing a protocol error.
   it("rejects an unknown tool name as a protocol error, not a tool result", async () => {
     const s = start();
-    s.send(initializeFrame(1));
-    await s.waitFor(1);
+    await s.handshake2025();
     s.send({
       jsonrpc: "2.0",
       id: 2,
@@ -460,8 +469,7 @@ describe("2025 era over stdio", () => {
   // exactly once, and a host may not assume answers arrive in request order.
   it("answers every request in a burst exactly once", async () => {
     const s = start();
-    s.send(initializeFrame(1));
-    await s.waitFor(1);
+    await s.handshake2025();
     const ids = [10, 11, 12, 13, 14, 15, 16, 17];
     for (const id of ids) {
       s.send(
@@ -715,11 +723,15 @@ describe("2026-07-28 era over stdio", () => {
   it("requires the envelope on every request of a pinned modern connection", async () => {
     const s = start();
     s.send({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: envelope() } });
-    await s.waitFor(1);
+    expect((await s.waitFor(1)).error).toBeUndefined();
     s.send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
     const refused = await s.waitFor(2);
+    // The second request claims nothing, and nothing on this connection completed
+    // the 2025 handshake, so the handshake refusal is the one that reaches it.
+    // What the case pins either way is that dropping the envelope loses the
+    // request rather than passing it on as an anonymous one.
     expect(refused.result).toBeUndefined();
-    expect(refused.error?.code).toBe(INVALID_PARAMS);
+    expect(refused.error?.code).toBe(INVALID_REQUEST);
   });
 
   // Catches a ping answered on the modern era: ping is not defined there, and a server that
@@ -773,8 +785,7 @@ describe("2026-07-28 era over stdio", () => {
     expect(modernFrame.result?.resultType).toBe("complete");
 
     const legacy = start();
-    legacy.send(initializeFrame(1));
-    await legacy.waitFor(1);
+    await legacy.handshake2025(1);
     legacy.send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
     const legacyFrame = await legacy.waitFor(2);
     expect(legacyFrame.result).not.toHaveProperty("_meta");
@@ -798,8 +809,7 @@ describe("era is decided per connection", () => {
     const s = start();
     s.send({ jsonrpc: "2.0", id: 1, method: "server/discover", params: { _meta: envelope() } });
     expect((await s.waitFor(1)).error).toBeUndefined();
-    s.send(initializeFrame(2));
-    const initialized = await s.waitFor(2);
+    const initialized = await s.handshake2025(2);
     expect(initialized.error).toBeUndefined();
     expect(initialized.result?.protocolVersion).toBe("2025-06-18");
     s.send({ jsonrpc: "2.0", id: 3, method: "tools/list" });
@@ -870,8 +880,7 @@ describe("era is decided per connection", () => {
     const modern = start();
     const legacy = start();
     modern.send({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: envelope() } });
-    legacy.send(initializeFrame(1));
-    await legacy.waitFor(1);
+    await legacy.handshake2025(1);
     legacy.send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
     const modernTools = (await modern.waitFor(1)).result?.tools;
     const legacyTools = (await legacy.waitFor(2)).result?.tools;
@@ -899,4 +908,552 @@ describe("era is decided per connection", () => {
     expect(pkg.mcpName.split("/").pop()).toBe(expectedName);
     expect(Object.keys(pkg.bin)).toEqual([expectedName]);
   });
+});
+
+/**
+ * The built server as a black box, driven over its own stdio.
+ *
+ * Every case here spawns dist/index.js with a stubbed global fetch injected
+ * through --import, so no network is touched. The stub writes one marked line
+ * per outbound request to stderr, which is how a case proves that a request was
+ * or was not made.
+ */
+
+const READY_BANNER = "vercel-deployment-mcp ready (stdio)";
+const REQUEST_MARKER = "__VREQ__";
+const TOKEN = "vc_protocol_token_canary";
+const TEAM_ID = "team_protocol_canary";
+
+interface RpcFrame {
+  jsonrpc?: string;
+  id?: number;
+  result?: {
+    tools?: Array<{ name?: string }>;
+    isError?: boolean;
+    [key: string]: unknown;
+  };
+  error?: { code?: number; message?: string };
+}
+
+interface Exit {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+}
+
+interface TestServer {
+  child: ChildProcessWithoutNullStreams;
+  send(message: unknown): void;
+  rpc(id: number, method: string, params?: unknown): Promise<RpcFrame>;
+  waitForFrame(id: number, timeoutMs?: number): Promise<RpcFrame>;
+  initialize(): Promise<void>;
+  waitForExit(timeoutMs: number): Promise<Exit>;
+  answeredIds(): number[];
+  stderr(): string;
+  requests(): string[];
+  stop(): void;
+}
+
+/** The stubbed fetch the child runs with: no network, one marked line per request. */
+function buildPreload(): string {
+  return [
+    "globalThis.fetch = async (input, init = {}) => {",
+    "  const url = new URL(String(input));",
+    "  if (url.origin !== 'https://api.vercel.com') throw new Error('unexpected origin');",
+    "  const headers = init.headers ?? {};",
+    "  const record = {",
+    "    url: url.toString(),",
+    "    authIsBearer: String(headers.Authorization ?? '').startsWith('Bearer '),",
+    "  };",
+    `  process.stderr.write(${JSON.stringify(REQUEST_MARKER)} + JSON.stringify(record) + '\\n');`,
+    "  const body = url.pathname.startsWith('/v9/projects/')",
+    "    ? { id: 'prj_ok', name: 'demo', framework: null }",
+    "    : { projects: [{ id: 'prj_ok', name: 'demo', framework: null }] };",
+    "  return new Response(JSON.stringify(body), { status: 200 });",
+    "};",
+  ].join("\n");
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const FRAME_INTAKE_BUDGET_MS = 20_000;
+
+/** The largest message the server accepts, as the README states it. */
+const FRAME_LIMIT_BYTES = 10485760;
+
+/**
+ * A `ping` request padded to exactly `contentBytes` bytes, the newline that
+ * ends the frame excluded. The padding rides in `params`, which `ping` ignores,
+ * so the request stays one the server answers however long it grows.
+ */
+function pingLineOfContentBytes(id: number, contentBytes: number): string {
+  const build = (padding: string) =>
+    JSON.stringify({ jsonrpc: "2.0", id, method: "ping", params: { padding } });
+  const line = build("x".repeat(contentBytes - Buffer.byteLength(build(""), "utf8")));
+  const built = Buffer.byteLength(line, "utf8");
+  if (built !== contentBytes) {
+    throw new Error(`meant to build a ${contentBytes} byte message, built ${built}`);
+  }
+  return line;
+}
+
+/**
+ * Write one frame of `megabytes` with no newline anywhere in it, a chunk at a
+ * time so nothing piles up on this side, and give up with a readable message if
+ * the server falls behind instead of dropping what is over the limit.
+ */
+async function writeUnterminatedFrame(server: TestServer, megabytes: number): Promise<void> {
+  const chunk = "x".repeat(1024 * 1024);
+  const deadline = Date.now() + FRAME_INTAKE_BUDGET_MS;
+  for (let written = 0; written < megabytes; written++) {
+    if (server.child.stdin.write(chunk)) continue;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `the server was still taking in one frame after ` +
+                `${FRAME_INTAKE_BUDGET_MS} ms, ${written} MB in`,
+            ),
+          ),
+        Math.max(0, deadline - Date.now()),
+      );
+      server.child.stdin.once("drain", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+}
+
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs: number,
+  describeFailure: () => string,
+): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) throw new Error(describeFailure());
+    await sleep(20);
+  }
+}
+
+async function startServer(extraEnv: Record<string, string> = {}): Promise<TestServer> {
+  const env = {
+    ...process.env,
+    VERCEL_TOKEN: TOKEN,
+    VERCEL_TEAM_ID: TEAM_ID,
+    VERCEL_MCP_MIN_INTERVAL_MS: "0",
+    ...extraEnv,
+  };
+  delete env.NODE_OPTIONS;
+  const child = spawn(
+    process.execPath,
+    ["--import", `data:text/javascript,${encodeURIComponent(buildPreload())}`, "dist/index.js"],
+    { env, stdio: ["pipe", "pipe", "pipe"] },
+  );
+
+  const frames = new Map<number, RpcFrame>();
+  const answered: number[] = [];
+  let stdoutBuffer = "";
+  let stderrBuffer = "";
+  let exit: Exit | undefined;
+
+  child.stdout.on("data", (chunk: Buffer) => {
+    stdoutBuffer += chunk.toString("utf8");
+    let idx: number;
+    while ((idx = stdoutBuffer.indexOf("\n")) >= 0) {
+      const line = stdoutBuffer.slice(0, idx);
+      stdoutBuffer = stdoutBuffer.slice(idx + 1);
+      if (line.trim().length === 0) continue;
+      try {
+        const parsed = JSON.parse(line) as RpcFrame;
+        if (parsed.id !== undefined) {
+          if (!frames.has(parsed.id)) answered.push(parsed.id);
+          frames.set(parsed.id, parsed);
+        }
+      } catch {
+        /* a non-JSON line is not a response; the purity suite covers that */
+      }
+    }
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderrBuffer += chunk.toString("utf8");
+  });
+  child.on("exit", (code, signal) => {
+    exit = { code, signal };
+  });
+  // A destroyed stdout on this side makes the child's write fail, which is the
+  // point of one case; the resulting EPIPE on our own pipe is not a failure.
+  child.stdin.on("error", () => {});
+
+  const server: TestServer = {
+    child,
+    send(message: unknown) {
+      child.stdin.write(JSON.stringify(message) + "\n");
+    },
+    async rpc(id: number, method: string, params?: unknown) {
+      server.send(params === undefined
+        ? { jsonrpc: "2.0", id, method }
+        : { jsonrpc: "2.0", id, method, params });
+      return server.waitForFrame(id);
+    },
+    async waitForFrame(id: number, timeoutMs = 10_000) {
+      await waitFor(
+        () => frames.has(id),
+        timeoutMs,
+        () => `no response to id ${id}; stderr so far: ${stderrBuffer}`,
+      );
+      return frames.get(id)!;
+    },
+    async initialize() {
+      const framed = await server.rpc(999, "initialize", {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "protocol-suite", version: "0.0.0" },
+      });
+      expect(framed.result).toBeDefined();
+      server.send({ jsonrpc: "2.0", method: "notifications/initialized" });
+      await sleep(100);
+    },
+    async waitForExit(timeoutMs: number) {
+      await waitFor(
+        () => exit !== undefined,
+        timeoutMs,
+        () => `the server was still running; stderr so far: ${stderrBuffer}`,
+      );
+      return exit!;
+    },
+    answeredIds() {
+      return [...answered];
+    },
+    stderr() {
+      return stderrBuffer;
+    },
+    requests() {
+      return stderrBuffer
+        .split("\n")
+        .filter((line) => line.startsWith(REQUEST_MARKER))
+        .map((line) => line.slice(REQUEST_MARKER.length));
+    },
+    stop() {
+      if (exit === undefined) child.kill();
+    },
+  };
+
+  await waitFor(
+    () => stderrBuffer.includes(READY_BANNER),
+    15_000,
+    () => `the server never reported itself ready; stderr so far: ${stderrBuffer}`,
+  );
+  return server;
+}
+
+describe("transport failures", () => {
+  it(
+    "exits cleanly when the host closes its read end of stdout",
+    async () => {
+      const server = await startServer();
+      try {
+        await server.initialize();
+        server.child.stdout.destroy();
+        server.send({ jsonrpc: "2.0", id: 9, method: "ping" });
+        server.send({ jsonrpc: "2.0", id: 10, method: "tools/list" });
+        const exit = await server.waitForExit(10_000);
+        expect(exit.code).toBe(0);
+        expect(exit.signal).toBeNull();
+        expect(server.stderr()).toContain("vercel-deployment-mcp transport error: ");
+        expect(server.stderr()).not.toContain("Unhandled 'error' event");
+        expect(server.stderr()).not.toContain("node_modules");
+      } finally {
+        server.stop();
+      }
+    },
+    20_000,
+  );
+
+  it(
+    "drops a frame larger than the stated limit, reports it once, and keeps serving",
+    async () => {
+      const server = await startServer();
+      try {
+        await server.initialize();
+        // Well past the limit, in one unterminated frame, then the newline that
+        // ends it and an ordinary request. The volume is the point: reporting
+        // the drop is not enough, the oversized bytes must never reach the
+        // stream the transport reads. A transport pointed at the raw input
+        // instead buffers all of this and joins it chunk by chunk, so the
+        // request after the newline arrives far too late to be answered here.
+        await writeUnterminatedFrame(server, 128);
+        server.child.stdin.write("\n");
+        const ping = await server.rpc(20, "ping");
+        expect(ping.result).toBeDefined();
+        const reported = server
+          .stderr()
+          .split("\n")
+          .filter((line) => line.includes("stdin frame exceeded"));
+        expect(reported).toHaveLength(1);
+        expect(reported[0]).toContain("vercel-deployment-mcp transport error: ");
+        expect(reported[0]).toContain("10485760");
+        expect(server.child.exitCode).toBeNull();
+      } finally {
+        server.stop();
+      }
+    },
+    30_000,
+  );
+
+  it(
+    "answers a message of exactly the limit and drops the one a byte past it",
+    async () => {
+      const server = await startServer();
+      try {
+        await server.initialize();
+        // The newline is what ends a frame, not part of the message inside it,
+        // so the message the README names is answered and the first message
+        // dropped is one byte longer. Off by one here would make the stated
+        // limit false for every client that counts what it sends.
+        const atLimit = pingLineOfContentBytes(40, FRAME_LIMIT_BYTES);
+        const pastLimit = pingLineOfContentBytes(41, FRAME_LIMIT_BYTES + 1);
+        expect(Buffer.byteLength(`${atLimit}\n`, "utf8") - 1).toBe(10485760);
+        expect(Buffer.byteLength(`${pastLimit}\n`, "utf8") - 1).toBe(10485761);
+
+        server.child.stdin.write(`${atLimit}\n`);
+        const answered = await server.waitForFrame(40, 30_000);
+        expect(answered.result).toBeDefined();
+        expect(answered.error).toBeUndefined();
+        expect(server.stderr()).not.toContain("stdin frame exceeded");
+
+        server.child.stdin.write(`${pastLimit}\n`);
+        const after = await server.rpc(42, "ping");
+        expect(after.result).toBeDefined();
+        // stdio keeps its order, so a later request answered while this one
+        // never was is the dropped frame, not a slow one.
+        expect(server.answeredIds()).not.toContain(41);
+
+        const reported = server
+          .stderr()
+          .split("\n")
+          .filter((line) => line.includes("stdin frame exceeded"));
+        expect(reported).toHaveLength(1);
+        expect(reported[0]).toContain("10485760");
+        expect(server.child.exitCode).toBeNull();
+      } finally {
+        server.stop();
+      }
+    },
+    60_000,
+  );
+
+  it(
+    "writes one line for a repeated oversized frame, then stops writing it",
+    async () => {
+      const server = await startServer();
+      try {
+        await server.initialize();
+        const megabyte = "x".repeat(1024 * 1024);
+        for (let frame = 0; frame < 3; frame++) {
+          for (let i = 0; i < 11; i++) server.child.stdin.write(megabyte);
+          server.child.stdin.write("\n");
+        }
+        const ping = await server.rpc(30, "ping");
+        expect(ping.result).toBeDefined();
+        const reported = server
+          .stderr()
+          .split("\n")
+          .filter((line) => line.includes("stdin frame exceeded"));
+        expect(reported).toHaveLength(2);
+        expect(reported[0]).not.toContain("suppressed");
+        expect(reported[1]).toContain("further identical reports suppressed");
+        expect(server.child.exitCode).toBeNull();
+      } finally {
+        server.stop();
+      }
+    },
+    30_000,
+  );
+});
+
+describe("the initialization handshake", () => {
+  it(
+    "refuses tool requests until the handshake completes, and makes no upstream request",
+    async () => {
+      const server = await startServer();
+      try {
+        const pingBefore = await server.rpc(1, "ping");
+        expect(pingBefore.result).toBeDefined();
+
+        const listBefore = await server.rpc(2, "tools/list");
+        expect(listBefore.error?.code).toBe(-32600);
+        expect(listBefore.result).toBeUndefined();
+
+        const callBefore = await server.rpc(3, "tools/call", {
+          name: "get_project",
+          arguments: { idOrName: "before_handshake" },
+        });
+        expect(callBefore.error?.code).toBe(-32600);
+        expect(server.requests()).toHaveLength(0);
+
+        await server.initialize();
+        const listAfter = await server.rpc(4, "tools/list");
+        expect(listAfter.result?.tools).toHaveLength(4);
+        const callAfter = await server.rpc(5, "tools/call", {
+          name: "get_project",
+          arguments: { idOrName: "after_handshake" },
+        });
+        expect(callAfter.result?.isError).not.toBe(true);
+        expect(server.requests()).toHaveLength(1);
+        expect(server.requests()[0]).toContain("after_handshake");
+      } finally {
+        server.stop();
+      }
+    },
+    20_000,
+  );
+
+  it(
+    "refuses a tool request when the initialized notification is all that came before it",
+    async () => {
+      const server = await startServer();
+      try {
+        // The notification on its own, with no initialize request ever sent.
+        server.send({ jsonrpc: "2.0", method: "notifications/initialized" });
+
+        const listAfterNotification = await server.rpc(1, "tools/list");
+        expect(listAfterNotification.error?.code).toBe(-32600);
+        expect(listAfterNotification.result).toBeUndefined();
+
+        const callAfterNotification = await server.rpc(2, "tools/call", {
+          name: "get_project",
+          arguments: { idOrName: "notification_only" },
+        });
+        expect(callAfterNotification.error?.code).toBe(-32600);
+        expect(callAfterNotification.result).toBeUndefined();
+        expect(server.requests()).toHaveLength(0);
+
+        // A real handshake after that still works, and only then is a tool served.
+        await server.initialize();
+        const listAfterHandshake = await server.rpc(3, "tools/list");
+        expect(listAfterHandshake.result?.tools).toHaveLength(4);
+      } finally {
+        server.stop();
+      }
+    },
+    20_000,
+  );
+
+  it(
+    "serves a request written in the same chunk as the initialized notification",
+    async () => {
+      const server = await startServer();
+      try {
+        const framed = await server.rpc(1, "initialize", {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "protocol-suite", version: "0.0.0" },
+        });
+        expect(framed.result).toBeDefined();
+        // One write carrying the notification and the next request, which is what
+        // a client that does not wait between the two sends.
+        server.child.stdin.write(
+          JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) +
+            "\n" +
+            JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }) +
+            "\n",
+        );
+        const pipelined = await server.waitForFrame(2);
+        expect(pipelined.error).toBeUndefined();
+        expect(pipelined.result?.tools).toHaveLength(4);
+      } finally {
+        server.stop();
+      }
+    },
+    20_000,
+  );
+
+  it(
+    "refuses a tool request when the initialize before it was not one the server can answer",
+    async () => {
+      const server = await startServer();
+      try {
+        // An initialize the server rejects, the notification, and a call, all
+        // in one write. The first half of the handshake never happened, so the
+        // notification that follows it still completes nothing.
+        server.child.stdin.write(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }) +
+            "\n" +
+            JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) +
+            "\n" +
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 2,
+              method: "tools/call",
+              params: { name: "get_project", arguments: { idOrName: "half_handshake" } },
+            }) +
+            "\n",
+        );
+
+        const refused = await server.waitForFrame(2);
+        expect(refused.error?.code).toBe(-32600);
+        expect(refused.result).toBeUndefined();
+        expect(server.requests()).toHaveLength(0);
+
+        // A real handshake after that still works.
+        await server.initialize();
+        const listAfter = await server.rpc(3, "tools/list");
+        expect(listAfter.result?.tools).toHaveLength(4);
+      } finally {
+        server.stop();
+      }
+    },
+    20_000,
+  );
+
+  it(
+    "serves a call written in the same chunk as the whole handshake",
+    async () => {
+      const server = await startServer();
+      try {
+        // A client that never waits for the initialize response: the request,
+        // the notification and the first call all leave in one write.
+        server.child.stdin.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-06-18",
+              capabilities: {},
+              clientInfo: { name: "protocol-suite", version: "0.0.0" },
+            },
+          }) +
+            "\n" +
+            JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) +
+            "\n" +
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 2,
+              method: "tools/call",
+              params: { name: "get_project", arguments: { idOrName: "one_write" } },
+            }) +
+            "\n",
+        );
+
+        const call = await server.waitForFrame(2);
+        expect(call.error).toBeUndefined();
+        expect(call.result?.isError).not.toBe(true);
+
+        const handshake = await server.waitForFrame(1);
+        expect(handshake.result).toBeDefined();
+
+        // Each response carries its own request's id, and the handshake is
+        // answered before the call that followed it.
+        expect(server.answeredIds()).toEqual([1, 2]);
+        expect(server.requests()).toHaveLength(1);
+        expect(server.requests()[0]).toContain("one_write");
+      } finally {
+        server.stop();
+      }
+    },
+    20_000,
+  );
 });

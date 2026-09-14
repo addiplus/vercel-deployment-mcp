@@ -26,6 +26,14 @@ const READ_ONLY_ANNOTATIONS = {
   openWorldHint: true,
 } satisfies ToolAnnotations;
 
+const MAX_IDENTIFIER_LEN = 512;
+const MAX_SEARCH_LEN = 4096;
+
+// A path segment made only of dots is removed by the URL parser, which would move
+// the request off this tool's endpoint while the receipt still named it.
+const NOT_DOT_SEGMENT_MESSAGE = "must not consist only of dots";
+const isNotDotSegment = (value: string) => !/^\.+$/.test(value);
+
 const ProjectResultSchema = z.strictObject({
   id: z.string(),
   name: z.string(),
@@ -104,6 +112,22 @@ function isApplied(value: string | undefined): boolean {
   return value !== undefined && value !== "";
 }
 
+// An upstream timestamp given as a number is milliseconds since the epoch, which
+// is what the Vercel API documents and returns. A number that reads as a date
+// before this point is not one: the usual cause is a seconds-resolution value,
+// which read as milliseconds names a date decades in the past. Reporting that
+// would be a wrong answer stated as confidently as a right one, so it is left
+// out instead. Zero is the one value both scales agree on and is kept.
+const EARLIEST_READABLE_MS = Date.UTC(2000, 0, 1);
+
+/** An upstream timestamp as ISO text, or undefined when it cannot be read. */
+function toIso(value: unknown): string | undefined {
+  if (typeof value === "number" && value !== 0 && value < EARLIEST_READABLE_MS) return undefined;
+  const ms =
+    typeof value === "number" || typeof value === "string" ? new Date(value).getTime() : Number.NaN;
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : undefined;
+}
+
 function asError(err: unknown) {
   let cfg;
   try {
@@ -145,7 +169,12 @@ export function registerTools(server: McpServer): void {
       inputSchema: {
         // A blank string previously fell through isApplied() as "filter not applied",
         // silently widening scope. Reject it at the schema boundary instead.
-        search: z.string().min(1).optional().describe("Filter projects by name"),
+        search: z
+          .string()
+          .min(1)
+          .max(MAX_SEARCH_LEN)
+          .optional()
+          .describe("Filter projects by name"),
         limit: z.number().int().min(1).max(100).optional().describe("Max results (default 20)"),
       },
       outputSchema: ListProjectsOutputSchema,
@@ -163,7 +192,7 @@ export function registerTools(server: McpServer): void {
           id: p.id,
           name: p.name,
           framework: p.framework ?? null,
-          updatedAt: p.updatedAt ? new Date(p.updatedAt).toISOString() : undefined,
+          updatedAt: toIso(p.updatedAt),
         }));
         return asStructured({
           pageCount: projects.length,
@@ -182,7 +211,12 @@ export function registerTools(server: McpServer): void {
       title: "Get a Vercel project",
       description: "Fetch one project by ID or name.",
       inputSchema: {
-        idOrName: z.string().min(1).describe("Project ID or project name"),
+        idOrName: z
+          .string()
+          .min(1)
+          .max(MAX_IDENTIFIER_LEN)
+          .refine(isNotDotSegment, NOT_DOT_SEGMENT_MESSAGE)
+          .describe("Project ID or project name"),
       },
       outputSchema: GetProjectOutputSchema,
       annotations: READ_ONLY_ANNOTATIONS,
@@ -200,7 +234,7 @@ export function registerTools(server: McpServer): void {
             id: p.id,
             name: p.name,
             framework: p.framework ?? null,
-            updatedAt: p.updatedAt ? new Date(p.updatedAt).toISOString() : undefined,
+            updatedAt: toIso(p.updatedAt),
           },
           receipt: receipt(config, []),
         });
@@ -218,8 +252,18 @@ export function registerTools(server: McpServer): void {
         "List recent deployments, optionally filtered by project ID and state (e.g. BUILDING, ERROR, READY).",
       inputSchema: {
         // See the search field above: blank optional filters are rejected, not silently ignored.
-        projectId: z.string().min(1).optional().describe("Limit to one project"),
-        state: z.string().min(1).optional().describe("Comma-separated states, e.g. READY,ERROR"),
+        projectId: z
+          .string()
+          .min(1)
+          .max(MAX_IDENTIFIER_LEN)
+          .optional()
+          .describe("Limit to one project"),
+        state: z
+          .string()
+          .min(1)
+          .max(MAX_IDENTIFIER_LEN)
+          .optional()
+          .describe("Comma-separated states, e.g. READY,ERROR"),
         limit: z.number().int().min(1).max(100).optional().describe("Max results (default 20)"),
       },
       outputSchema: ListDeploymentsOutputSchema,
@@ -246,7 +290,7 @@ export function registerTools(server: McpServer): void {
             url: d.url,
             state: d.state ?? d.readyState,
             target: d.target ?? null,
-            createdAt: d.createdAt ? new Date(d.createdAt).toISOString() : undefined,
+            createdAt: toIso(d.createdAt),
           };
         });
         return asStructured({
@@ -271,7 +315,12 @@ export function registerTools(server: McpServer): void {
       title: "Get a deployment",
       description: "Fetch one deployment by ID or URL, including its current state.",
       inputSchema: {
-        idOrUrl: z.string().min(1).describe("Deployment ID (dpl_…) or deployment URL"),
+        idOrUrl: z
+          .string()
+          .min(1)
+          .max(MAX_IDENTIFIER_LEN)
+          .refine(isNotDotSegment, NOT_DOT_SEGMENT_MESSAGE)
+          .describe("Deployment ID (dpl_…) or deployment URL"),
       },
       outputSchema: GetDeploymentOutputSchema,
       annotations: READ_ONLY_ANNOTATIONS,
@@ -291,7 +340,7 @@ export function registerTools(server: McpServer): void {
             url: d.url,
             state: d.state ?? d.readyState,
             target: d.target ?? null,
-            createdAt: d.createdAt ? new Date(d.createdAt).toISOString() : undefined,
+            createdAt: toIso(d.createdAt),
           },
           receipt: receipt(config, []),
         });

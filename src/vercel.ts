@@ -2,8 +2,11 @@
  * Vercel REST API client with strict configuration hygiene.
  *
  * Design principles (verified in test/):
- *  - Credential values are read only from the environment and never echoed:
- *    not in errors, not in logs, not in tool responses.
+ *  - Credential values are read only from the environment. Error text is
+ *    passed through the redaction guard once, where it becomes client
+ *    visible text, so an upstream error message cannot echo a configured
+ *    value back. A successful result is a fixed projection of the upstream
+ *    body and is not redacted.
  *  - stdout belongs to the MCP protocol; diagnostics go to stderr only.
  *  - Errors surfaced to the client are shaped and size-bounded.
  */
@@ -110,7 +113,14 @@ export function buildUrl(
   return url.toString();
 }
 
-const MAX_ERROR_LEN = 400;
+/** The one bound on client visible error text. Applied after redaction, never before. */
+const MAX_ERROR_LEN = 500;
+/**
+ * The bound on a transport diagnostic's message, tighter than the one client
+ * visible error text takes because the line it becomes goes into someone
+ * else's log rather than back to the caller who asked for it.
+ */
+const MAX_TRANSPORT_MESSAGE_LEN = 400;
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /** Politeness throttle applied to every outbound Vercel API request. */
@@ -121,6 +131,8 @@ export interface ThrottleOptions {
 
 const DEFAULT_MIN_INTERVAL_MS = 250;
 const DEFAULT_MAX_CONCURRENT = 4;
+/** A politeness throttle has no reason to space requests further apart than this. */
+const MAX_MIN_INTERVAL_MS = 60_000;
 const MAX_AUTO_RETRY_AFTER_SECONDS = 10;
 
 /** A finite, non-negative number parsed from a trimmed env var, or undefined if unusable. */
@@ -136,8 +148,15 @@ function parseFiniteNonNegative(raw: string | undefined): number | undefined {
 /** Parse throttle env vars defensively: bad input falls back to defaults, never throws. */
 export function resolveThrottleOptions(env: NodeJS.ProcessEnv = process.env): ThrottleOptions {
   const parsedMinInterval = parseFiniteNonNegative(env.VERCEL_MCP_MIN_INTERVAL_MS);
-  const minIntervalMs =
+  let minIntervalMs =
     parsedMinInterval !== undefined ? Math.floor(parsedMinInterval) : DEFAULT_MIN_INTERVAL_MS;
+  if (minIntervalMs > MAX_MIN_INTERVAL_MS) {
+    console.error(
+      `vercel-deployment-mcp: VERCEL_MCP_MIN_INTERVAL_MS ${minIntervalMs} is above the ` +
+        `${MAX_MIN_INTERVAL_MS} ms ceiling, so ${MAX_MIN_INTERVAL_MS} ms is used.`,
+    );
+    minIntervalMs = MAX_MIN_INTERVAL_MS;
+  }
 
   const parsedMaxConcurrent = parseFiniteNonNegative(env.VERCEL_MCP_MAX_CONCURRENT);
   const maxConcurrent =
@@ -289,8 +308,9 @@ export async function vercelGet<T>(
     } catch {
       /* non-JSON body, keep the generic message */
     }
-    const safe = redactValues(message, [config.token, config.teamId]).slice(0, MAX_ERROR_LEN);
-    throw new ApiError(res.status, code, safe);
+    // Redaction and the length bound belong at the boundary, in formatToolError,
+    // so the text is never cut before the values in it have been replaced.
+    throw new ApiError(res.status, code, message);
   }
 
   return (await res.json()) as T;
@@ -332,23 +352,32 @@ export function assertDeploymentShape<T>(data: T): asserts data is T & Record<st
 /** Shape any error into a clean, client-safe string. */
 export function formatToolError(err: unknown, config?: VercelConfig): string {
   let msg: string;
+  let hint = "";
   if (err instanceof ConfigError) {
     msg = `Configuration problem: ${err.message}`;
   } else if (err instanceof ApiError) {
-    const hint =
+    hint =
       err.status === 401 || err.status === 403
         ? " Check that the configured credential is valid and has access to this project or team."
         : err.status === 429
           ? " Rate limited by the Vercel API, so retry after a short wait."
           : "";
     const body = hint && err.message && !/[.!?]$/.test(err.message) ? `${err.message}.` : err.message;
-    msg = `Vercel API error (HTTP ${err.status}${err.code ? `, ${err.code}` : ""}): ${body}${hint}`;
+    msg = `Vercel API error (HTTP ${err.status}${err.code ? `, ${err.code}` : ""}): ${body}`;
   } else if (err instanceof Error) {
     msg = `Unexpected error: ${err.message}`;
   } else {
     msg = "Unexpected error.";
   }
-  return redactValues(msg, [config?.token, config?.teamId]).slice(0, MAX_ERROR_LEN + 100);
+  // The hint is fixed text this file writes, so it carries nothing to redact and
+  // nothing an upstream message can hide inside. Room is reserved for it, and for
+  // the full stop in front of it, before the bound is applied to everything else,
+  // so a long upstream message pushes its own text out rather than the reader's
+  // next step.
+  const room = hint ? MAX_ERROR_LEN - hint.length - 1 : MAX_ERROR_LEN;
+  const bounded = redactValues(msg, [config?.token, config?.teamId]).slice(0, room);
+  if (!hint) return bounded;
+  return (/[.!?]$/.test(bounded) ? bounded : `${bounded}.`) + hint;
 }
 
 /**
@@ -364,9 +393,10 @@ export const TRANSPORT_ERROR_PREFIX = "vercel-deployment-mcp transport error: ";
  * vendor prose, or (through `toError`) a String() of a non-Error throw. The
  * message can carry client-supplied text, so it is redacted against the
  * configured credentials read from the environment at call time, collapsed to a
- * single line, and cut to MAX_ERROR_LEN. Redaction runs on the raw text, before
- * the collapse, because a configured value may itself contain whitespace and
- * would no longer match its own bytes once the collapse had rewritten them.
+ * single line, and cut to MAX_TRANSPORT_MESSAGE_LEN. Redaction runs on the raw
+ * text, before the collapse, because a configured value may itself contain
+ * whitespace and would no longer match its own bytes once the collapse had
+ * rewritten them.
  * Never throws, for any input: a diagnostic path that can throw is worse than
  * no diagnostic path.
  *
@@ -387,5 +417,7 @@ export function formatTransportError(
   if (typeof raw !== "string") raw = "";
   const safe = redactValues(raw, [env.VERCEL_TOKEN?.trim(), env.VERCEL_TEAM_ID?.trim()]);
   const oneLine = safe.replace(/\s+/g, " ").trim();
-  return TRANSPORT_ERROR_PREFIX + (oneLine.slice(0, MAX_ERROR_LEN) || "unknown transport error");
+  return (
+    TRANSPORT_ERROR_PREFIX + (oneLine.slice(0, MAX_TRANSPORT_MESSAGE_LEN) || "unknown transport error")
+  );
 }

@@ -471,6 +471,82 @@ describe("blank optional filters are rejected at the schema boundary", () => {
   });
 });
 
+describe("string arguments are bounded above as well as below", () => {
+  it("accepts a search at the limit and rejects one character more", () => {
+    const schema = z.object(getTools().get("list_projects")!.meta.inputSchema);
+    expect(schema.safeParse({ search: "x".repeat(4096) }).success).toBe(true);
+    expect(schema.safeParse({ search: "x".repeat(4097) }).success).toBe(false);
+  });
+
+  it("accepts an identifier at the limit and rejects one character more", () => {
+    const cases: Array<[string, string]> = [
+      ["get_project", "idOrName"],
+      ["get_deployment", "idOrUrl"],
+      ["list_deployments", "projectId"],
+      ["list_deployments", "state"],
+    ];
+    for (const [tool, field] of cases) {
+      const schema = z.object(getTools().get(tool)!.meta.inputSchema);
+      expect(schema.safeParse({ [field]: "x".repeat(512) }).success, `${tool}.${field}`).toBe(true);
+      expect(schema.safeParse({ [field]: "x".repeat(513) }).success, `${tool}.${field}`).toBe(false);
+    }
+  });
+
+  it("publishes the length bounds in the input schema", () => {
+    const published = (tool: string) =>
+      z.toJSONSchema(z.object(getTools().get(tool)!.meta.inputSchema), { io: "input" }) as {
+        properties: Record<string, { maxLength?: number }>;
+      };
+    expect(published("list_projects").properties.search.maxLength).toBe(4096);
+    expect(published("get_project").properties.idOrName.maxLength).toBe(512);
+    expect(published("get_deployment").properties.idOrUrl.maxLength).toBe(512);
+    expect(published("list_deployments").properties.projectId.maxLength).toBe(512);
+    expect(published("list_deployments").properties.state.maxLength).toBe(512);
+  });
+});
+
+describe("identifiers that would move the request off the endpoint are rejected", () => {
+  it("rejects an identifier made only of dots and keeps ordinary values", () => {
+    for (const [tool, field] of [
+      ["get_project", "idOrName"],
+      ["get_deployment", "idOrUrl"],
+    ] as const) {
+      const schema = z.object(getTools().get(tool)!.meta.inputSchema);
+      for (const bad of [".", "..", "..."]) {
+        expect(schema.safeParse({ [field]: bad }).success, `${tool} ${bad}`).toBe(false);
+      }
+      for (const good of ["prj_1", "%2e%2e", "a/../..", "app.vercel.app"]) {
+        expect(schema.safeParse({ [field]: good }).success, `${tool} ${good}`).toBe(true);
+      }
+    }
+  });
+
+  it("keeps one path segment under the tool's endpoint for every accepted value", async () => {
+    const tools = getTools();
+    for (const [tool, field, prefix] of [
+      ["get_project", "idOrName", "/v9/projects/"],
+      ["get_deployment", "idOrUrl", "/v13/deployments/"],
+    ] as const) {
+      for (const value of ["prj_1", "%2e%2e", "a/../..", "my proj/x"]) {
+        let seen = "";
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async (url: RequestInfo | URL) => {
+            seen = String(url);
+            return new Response(JSON.stringify({ id: "prj_1", name: "demo" }), { status: 200 });
+          }),
+        );
+        await tools.get(tool)!.handler({ [field]: value });
+        const { pathname } = new URL(seen);
+        expect(pathname.startsWith(prefix), `${tool} ${value} -> ${pathname}`).toBe(true);
+        const segment = pathname.slice(prefix.length);
+        expect(segment.length, `${tool} ${value}`).toBeGreaterThan(0);
+        expect(segment.includes("/"), `${tool} ${value}`).toBe(false);
+      }
+    }
+  });
+});
+
 describe("receipt.appliedFilters for valid filters", () => {
   it("list_projects records search once applied", async () => {
     const tools = getTools();
@@ -578,5 +654,77 @@ describe("unexpected 2xx response shapes", () => {
       receipt: { scopeKind: "personal", appliedFilters: [], endpointProfile: "vercel-read-v1" },
     });
     expect(JSON.parse(result.content[0].text)).toEqual(result.structuredContent);
+  });
+});
+
+describe("upstream timestamps", () => {
+  const listOf = (rows: unknown[]) =>
+    vi.fn(async () => new Response(JSON.stringify({ projects: rows }), { status: 200 }));
+
+  it("keeps the rest of the page when one row's timestamp cannot be read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      listOf([
+        { id: "prj_1", name: "good", updatedAt: 1700000000000 },
+        { id: "prj_2", name: "bad", updatedAt: "nope" },
+      ]),
+    );
+    const result = await getTools().get("list_projects")!.handler({});
+    expect(result.isError).not.toBe(true);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.pageCount).toBe(2);
+    expect(parsed.items[0].updatedAt).toBe("2023-11-14T22:13:20.000Z");
+    expect(parsed.items[1].updatedAt).toBeUndefined();
+    expect(parsed.items[1].id).toBe("prj_2");
+  });
+
+  it("reports a timestamp of zero as the epoch instead of dropping it", async () => {
+    vi.stubGlobal("fetch", listOf([{ id: "prj_1", name: "demo", updatedAt: 0 }]));
+    const result = await getTools().get("list_projects")!.handler({});
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.items[0].updatedAt).toBe("1970-01-01T00:00:00.000Z");
+  });
+
+  it("omits a seconds-resolution timestamp rather than reporting a date decades off", async () => {
+    vi.stubGlobal("fetch", listOf([{ id: "prj_1", name: "demo", updatedAt: 1700000000 }]));
+    const result = await getTools().get("list_projects")!.handler({});
+    expect(result.isError).not.toBe(true);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.items[0].updatedAt).toBeUndefined();
+    expect(parsed.items[0].id).toBe("prj_1");
+  });
+
+  it("still reads a date delivered as text from before the numeric floor", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({ uid: "dpl_1", name: "app", createdAt: "1999-05-04T03:02:01.000Z" }),
+          { status: 200 },
+        ),
+      ),
+    );
+    const result = await getTools().get("get_deployment")!.handler({ idOrUrl: "dpl_1" });
+    expect(result.isError).not.toBe(true);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.item.createdAt).toBe("1999-05-04T03:02:01.000Z");
+  });
+
+  it("omits a timestamp delivered as a string or out of range, without failing the call", async () => {
+    for (const value of ["1700000000000", 8.64e15 + 1]) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          new Response(JSON.stringify({ uid: "dpl_1", name: "app", createdAt: value }), {
+            status: 200,
+          }),
+        ),
+      );
+      const result = await getTools().get("get_deployment")!.handler({ idOrUrl: "dpl_1" });
+      expect(result.isError, String(value)).not.toBe(true);
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.item.createdAt, String(value)).toBeUndefined();
+      expect(parsed.item.id, String(value)).toBe("dpl_1");
+    }
   });
 });

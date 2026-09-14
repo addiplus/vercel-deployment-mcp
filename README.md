@@ -74,6 +74,39 @@ On an HTTP 429 with a numeric `Retry-After` header of 10 seconds or less, the
 server waits that long and retries the request once; any other 429 is
 surfaced as an error on the first attempt.
 
+### Limits
+
+| Limit | Value |
+| --- | --- |
+| Longest `search` value | 4096 characters |
+| Longest `projectId`, `state`, `idOrName`, `idOrUrl` value | 512 characters |
+| Largest accepted protocol frame | 10485760 bytes |
+| Highest accepted `VERCEL_MCP_MIN_INTERVAL_MS` | 60000 |
+
+The frame limit counts the message and not the newline that delimits it, so a
+message of exactly 10485760 bytes is accepted. Everything before that newline is
+the message, a carriage return sitting just in front of it included.
+
+Each of these limits has its own behaviour above the value in the table. An
+over-long argument fails input validation: the call comes back as a JSON-RPC
+`-32602` invalid-params result, no Vercel API request is made, and nothing is
+written to stderr for it. A frame above the frame limit is dropped, one line on
+stderr says so, and the connection keeps serving. An interval above the ceiling
+is not refused, it is reduced to the ceiling: the server runs with the reduced
+value, and one line on stderr says so the first time it makes a Vercel API
+request. The same stderr report repeated back to back is written twice at most,
+the second time to say that further identical reports are suppressed.
+
+`initialize` and `ping` are answered at any time. `tools/list` and `tools/call`
+are answered only once the client has completed the initialization handshake:
+an `initialize` request the server can answer, followed by
+`notifications/initialized`. Both halves are required, so the notification on
+its own completes nothing, and neither does an `initialize` the server rejects.
+A client that writes both halves and its first call in a single write is
+served, rather than being refused for not waiting for the initialize response. Before the
+handshake, those two methods are refused with JSON-RPC error `-32600` and no
+Vercel API request is made.
+
 Example client configuration (Claude Desktop / Claude Code):
 
 ```json
@@ -93,17 +126,21 @@ When running from a source checkout, use `"command": "node"` with
 
 ## Design principles
 
-Dated 2026-07-10. Each claim below is implemented in code and verified by the
+First written 2026-07-10 and kept current with the code since; claim 1 was
+restated when error text began being redacted once, where it becomes
+client-visible. Each claim below is implemented in code and verified by the
 test suite where testable (`test/`); design properties cite the implementing
 code.
 
-1. **Credentials the server holds never appear in output.** The access token is
-   read only from the environment, and every message the server composes is
-   shaped, size-bounded, and passed through a redaction guard, so an upstream
-   API message cannot echo the value back (`src/vercel.ts`). A protocol field
-   the client itself sent, such as a claimed protocol revision, is still echoed
-   back to that same client in the protocol error that rejects it, even when
-   its bytes happen to equal a configured value (`test/stdio-era.test.ts`).
+1. **Configured values never appear in an error.** The access token is read
+   only from the environment. Error text is shaped, size-bounded, and passed
+   through a redaction guard once, where it becomes client-visible text, so
+   an upstream API message cannot echo the token or the team id back
+   (`src/vercel.ts`); the fixed hint appended after that bound is text this
+   server writes and carries nothing to replace. A successful result is a fixed
+   projection of the
+   upstream body and is not redacted, so a team identifier that the Vercel
+   API itself returns inside a deployment URL still appears there.
 2. **stdout belongs to the protocol.** All diagnostics go to stderr
    (`src/index.ts`), so no log line can leak into a tool response. stderr
    carries a readiness banner and, when the transport reports an out-of-band
