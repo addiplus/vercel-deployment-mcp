@@ -260,10 +260,15 @@ describe("stdio era negotiation", () => {
         expect(stderrBuffer).not.toContain(token);
         expect(stderrBuffer).not.toContain(teamId);
         for (const line of stdoutLines) expect(JSON.parse(line).jsonrpc).toBe("2.0");
-        // Deliberately NOT asserted here: the -32022 frame on stdout echoes the revision the
-        // client itself claimed, which is this token, back to that same client. That is the
-        // client's own string returning to the client, not a server-side leak, and asserting
-        // stdout is canary-free in this one test would fail for the wrong reason.
+        // The other half of the split, asserted rather than described: the -32022
+        // frame on stdout carries the revision the client itself claimed, which is
+        // this token, back to that same client. That is the client's own string
+        // returning to its sender rather than a value this server composed into an
+        // error, which is the carve-out README.md claim 1 names; a redaction here
+        // would hide from a client which of its claims was refused.
+        const refusedFrame = JSON.stringify(refused);
+        expect(refusedFrame).toContain(token);
+        expect(refusedFrame).not.toContain("[redacted]");
       } finally {
         child.kill();
       }

@@ -150,7 +150,8 @@ client-visible. Each claim below is implemented in code and verified by the
 test suite where testable (`test/`); design properties cite the implementing
 code.
 
-1. **Configured values never appear in an error.** The access token is read
+1. **Configured values never appear in an error the server composes.** The
+   access token is read
    only from the environment. Error text is shaped, size-bounded, and passed
    through a redaction guard once, where it becomes client-visible text, so
    an upstream API message cannot echo the token or the team id back
@@ -158,11 +159,17 @@ code.
    server writes and carries nothing to replace. A successful result is a fixed
    projection of the
    upstream body and is not redacted, so a team identifier that the Vercel
-   API itself returns inside a deployment URL still appears there.
+   API itself returns inside a deployment URL still appears there. A protocol
+   field the client itself sent, such as a claimed protocol revision, is still
+   echoed back to that same client in the protocol error that rejects it, even
+   when its bytes happen to equal a configured value; the report that failure
+   writes to stderr is redacted (`test/stdio-era.test.ts` asserts both halves).
 2. **stdout belongs to the protocol.** All diagnostics go to stderr
    (`src/index.ts`), so no log line can leak into a tool response. stderr
    carries a readiness banner and, when the transport reports an out-of-band
-   failure, one line per failure in the form
+   failure, one line per failure within the two bounds the Limits section
+   states, a repeated failure written twice at most and one hundred reports
+   all a process writes, in the form
    `vercel-deployment-mcp transport error: <message>`: a single line, passed
    through the same redaction as tool errors and cut to its own 400-character
    bound on the message, tighter than the 500-character bound a tool error

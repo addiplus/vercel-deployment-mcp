@@ -120,7 +120,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   reports one process writes, states that the handshake requirement
   applies only to a request claiming no protocol revision, and describes
   an over-long argument the way this line answers it, as a tool result
-  carrying `isError: true` rather than as a JSON-RPC `-32602` frame.
+  carrying `isError: true` rather than as a JSON-RPC `-32602` frame. Its
+  design principles carry the two bounds on a
+  transport report inside the claim that states it, and name the one
+  error text that carries a value the client itself sent: the frame
+  refusing a claimed protocol revision echoes that claim back to its
+  sender, while the report of it on stderr is redacted.
   `TESTING.md` counts the eight test files of this line and describes the
   transport and handshake cases.
 

@@ -88,7 +88,9 @@ Eight files, run with vitest.
   nothing gets the banner and nothing else. That line is one line, never a stack, its message capped
   at 400 characters (the line is that plus its 39-character prefix), and passed through the same credential redaction the API client uses,
   which a second case in the file proves by claiming the configured token as a protocol
-  revision and asserting the reporter writes `[redacted]`.
+  revision and asserting the reporter writes `[redacted]`. That case asserts the other
+  half of the same split too: the `-32022` frame on stdout carries the claimed string back
+  to the client that sent it, unredacted, which is the carve-out `README.md` claim 1 names.
 - `test/suite/`: four lenses on the same built server, all hand-written frames, no client
   library. `protocol.test.ts` pins protocol conformance on both eras, that the era is
   decided per connection, and the transport and handshake boundary: a claim-less tool
