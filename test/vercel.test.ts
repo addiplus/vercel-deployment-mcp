@@ -130,7 +130,89 @@ describe("formatTransportError", () => {
     );
   });
 
-  it("caps the line at the same 400 characters the API client uses", () => {
+  // A configured value may carry internal whitespace: getConfig only trims the ends.
+  // Redaction therefore has to run on the raw text; collapsing first rewrites the
+  // value's own bytes and the exact-value replacement then finds nothing to replace.
+  it("redacts a configured value that contains whitespace, on the transport path", () => {
+    const spaced = "secret  token";
+    expect(formatTransportError(new Error(`echo ${spaced} B`), { VERCEL_TOKEN: spaced })).toBe(
+      `${TRANSPORT_ERROR_PREFIX}echo [redacted] B`,
+    );
+    const tabbed = "secret\ttoken";
+    expect(formatTransportError(new Error(`echo ${tabbed} B`), { VERCEL_TEAM_ID: tabbed })).toBe(
+      `${TRANSPORT_ERROR_PREFIX}echo [redacted] B`,
+    );
+    const wrapped = "secret\nvalue";
+    expect(formatTransportError(new Error(`echo ${wrapped} B`), { VERCEL_TOKEN: wrapped })).toBe(
+      `${TRANSPORT_ERROR_PREFIX}echo [redacted] B`,
+    );
+    // The collapse still happens, it just happens second.
+    const both = formatTransportError(new Error(`a\n\nb ${spaced} c`), { VERCEL_TOKEN: spaced });
+    expect(both).toBe(`${TRANSPORT_ERROR_PREFIX}a b [redacted] c`);
+    expect(both).not.toMatch(/[\r\n\t]/);
+  });
+
+  // One configured value is a prefix of the other. Replacing values one at a time leaves
+  // the longer one's remainder behind whenever the shorter one goes first, so each field
+  // order is pinned on its own, on both the transport path and the tool path.
+  function expectOverlapRedacted(token: string, teamId: string): void {
+    const long = token.length >= teamId.length ? token : teamId;
+    const short = token.length >= teamId.length ? teamId : token;
+    const transport = formatTransportError(new Error(`saw ${long} here`), {
+      VERCEL_TOKEN: token,
+      VERCEL_TEAM_ID: teamId,
+    } as NodeJS.ProcessEnv);
+    expect(transport).toBe(`${TRANSPORT_ERROR_PREFIX}saw [redacted] here`);
+    expect(transport).not.toContain(long.slice(short.length));
+    expect(transport).not.toContain(short);
+    // formatToolError shares the same helper, so the same has to hold there.
+    const tool = formatToolError(new ApiError(400, "bad_request", `saw ${long} here`), {
+      token,
+      teamId,
+    });
+    expect(tool).toBe("Vercel API error (HTTP 400, bad_request): saw [redacted] here");
+    expect(tool).not.toContain(long.slice(short.length));
+    expect(tool).not.toContain(short);
+  }
+
+  it("redacts overlapping configured values when the team id holds the longer one", () => {
+    expectOverlapRedacted("abc", "abcdef");
+  });
+
+  it("redacts overlapping configured values when the token holds the longer one", () => {
+    expectOverlapRedacted("abcdef", "abc");
+  });
+
+  // A value that is a substring of "[redacted]" turns a replacement written for the
+  // other value into a mangled marker, unless replacement text is never rescanned.
+  it("leaves the marker intact when a configured value is a substring of it", () => {
+    for (const inner of ["redact", "dact", "ed]"]) {
+      const env = { VERCEL_TOKEN: "boom", VERCEL_TEAM_ID: inner } as NodeJS.ProcessEnv;
+      const out = formatTransportError(new Error("boom happened"), env);
+      expect(out).toBe(`${TRANSPORT_ERROR_PREFIX}[redacted] happened`);
+      expect(out.match(/\[redacted\]/g)).toHaveLength(1);
+      const tool = formatToolError(new ApiError(400, "bad_request", "boom happened"), {
+        token: "boom",
+        teamId: inner,
+      });
+      expect(tool).toBe("Vercel API error (HTTP 400, bad_request): [redacted] happened");
+      expect(tool.match(/\[redacted\]/g)).toHaveLength(1);
+    }
+  });
+
+  // A credential is an opaque string, not a pattern: regex metacharacters in it must
+  // match themselves, and must not match anything else.
+  it("treats a configured value with regex metacharacters as literal text", () => {
+    const env = { VERCEL_TOKEN: "a.c+d[e]" } as NodeJS.ProcessEnv;
+    expect(formatTransportError(new Error("saw a.c+d[e] here"), env)).toBe(
+      `${TRANSPORT_ERROR_PREFIX}saw [redacted] here`,
+    );
+    expect(formatTransportError(new Error("saw abcXdZ here"), env)).toBe(
+      `${TRANSPORT_ERROR_PREFIX}saw abcXdZ here`,
+    );
+  });
+
+  it("caps the message at the same 400 characters the API client uses", () => {
     const out = formatTransportError(new Error("x".repeat(900)), ENV);
     expect(out).toHaveLength(TRANSPORT_ERROR_PREFIX.length + 400);
     expect(out.endsWith("x")).toBe(true);

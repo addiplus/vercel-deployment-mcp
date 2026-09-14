@@ -47,15 +47,21 @@ export function getConfig(env: NodeJS.ProcessEnv = process.env): VercelConfig {
   return { token, teamId };
 }
 
-/** Replace any occurrence of the given values in text with a placeholder. */
+/**
+ * Replace any occurrence of the given values in text with a placeholder.
+ *
+ * Every distinct value is replaced in one left-to-right pass, longest first, so
+ * that no replacement text is ever rescanned. Replacing values one after the
+ * other is wrong twice over: with overlapping values the shorter one goes first
+ * and leaves the longer one's remainder behind, and a value that is a substring
+ * of the placeholder chops up a placeholder an earlier value already wrote.
+ */
 export function redactValues(text: string, values: Array<string | undefined>): string {
-  let out = text;
-  for (const v of values) {
-    if (v && v.length > 0) {
-      out = out.split(v).join("[redacted]");
-    }
-  }
-  return out;
+  const present = values.filter((v): v is string => typeof v === "string" && v.length > 0);
+  const needles = [...new Set(present)].sort((a, b) => b.length - a.length);
+  if (needles.length === 0) return text;
+  const pattern = needles.map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  return text.replace(new RegExp(pattern, "g"), "[redacted]");
 }
 
 /** Build a request URL, adding teamId when configured. */
@@ -326,8 +332,11 @@ export const TRANSPORT_ERROR_PREFIX = "vercel-deployment-mcp transport error: ";
  * vendor prose, or (through `toError`) a String() of a non-Error throw. The
  * message can carry client-supplied text, so it is redacted against the
  * configured credentials read from the environment at call time, collapsed to a
- * single line, and cut to MAX_ERROR_LEN. Never throws, for any input: a
- * diagnostic path that can throw is worse than no diagnostic path.
+ * single line, and cut to MAX_ERROR_LEN. Redaction runs on the raw text, before
+ * the collapse, because a configured value may itself contain whitespace and
+ * would no longer match its own bytes once the collapse had rewritten them.
+ * Never throws, for any input: a diagnostic path that can throw is worse than
+ * no diagnostic path.
  *
  * The environment is read directly rather than through getConfig(), because
  * getConfig() throws a ConfigError when VERCEL_TOKEN is unset and a reporter
@@ -344,7 +353,7 @@ export function formatTransportError(
     raw = "";
   }
   if (typeof raw !== "string") raw = "";
-  const oneLine = raw.replace(/\s+/g, " ").trim();
-  const safe = redactValues(oneLine, [env.VERCEL_TOKEN?.trim(), env.VERCEL_TEAM_ID?.trim()]);
-  return TRANSPORT_ERROR_PREFIX + (safe.slice(0, MAX_ERROR_LEN) || "unknown transport error");
+  const safe = redactValues(raw, [env.VERCEL_TOKEN?.trim(), env.VERCEL_TEAM_ID?.trim()]);
+  const oneLine = safe.replace(/\s+/g, " ").trim();
+  return TRANSPORT_ERROR_PREFIX + (oneLine.slice(0, MAX_ERROR_LEN) || "unknown transport error");
 }

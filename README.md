@@ -97,10 +97,13 @@ Dated 2026-07-10. Each claim below is implemented in code and verified by the
 test suite where testable (`test/`); design properties cite the implementing
 code.
 
-1. **Configuration values never appear in output.** The access token is read
-   only from the environment. Error messages are shaped, size-bounded, and
-   passed through a redaction guard so upstream API messages cannot echo the
-   value back (`src/vercel.ts`).
+1. **Credentials the server holds never appear in output.** The access token is
+   read only from the environment, and every message the server composes is
+   shaped, size-bounded, and passed through a redaction guard, so an upstream
+   API message cannot echo the value back (`src/vercel.ts`). A protocol field
+   the client itself sent, such as a claimed protocol revision, is still echoed
+   back to that same client in the protocol error that rejects it, even when
+   its bytes happen to equal a configured value (`test/stdio-era.test.ts`).
 2. **stdout belongs to the protocol.** All diagnostics go to stderr
    (`src/index.ts`), so no log line can leak into a tool response. stderr
    carries a readiness banner and, when the transport reports an out-of-band
