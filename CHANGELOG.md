@@ -20,6 +20,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   marker replaces each joined range, and replacement text is never
   rescanned. This applied to every release so far.
 
+### Fixed
+
+- A closed stdout no longer crashes the server. The write error is
+  reported as one line on stderr and the process exits with status 0,
+  instead of an unhandled error event, status 1, and a stack carrying
+  installation paths.
+
 ## [0.2.0] - 2026-07-10
 
 ### Changed
