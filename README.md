@@ -65,6 +65,25 @@ On an HTTP 429 with a numeric `Retry-After` header of 10 seconds or less, the
 server waits that long and retries the request once; any other 429 is
 surfaced as an error on the first attempt.
 
+### Limits
+
+| Limit | Value |
+| --- | --- |
+| Longest `search` value | 4096 characters |
+| Longest `projectId`, `state`, `idOrName`, `idOrUrl` value | 512 characters |
+| Largest accepted protocol frame | 10485760 bytes |
+| Highest accepted `VERCEL_MCP_MIN_INTERVAL_MS` | 60000 |
+
+A value above one of these limits is refused rather than trimmed: an over-long
+argument fails input validation, a frame above the frame limit is dropped with
+one line on stderr and the connection keeps serving, and an interval above the
+ceiling is reduced to the ceiling with one line on stderr.
+
+`initialize` and `ping` are answered at any time. `tools/list` and `tools/call`
+are answered only once the client has completed the initialization handshake;
+before that they are refused with JSON-RPC error `-32600` and no Vercel API
+request is made.
+
 Example client configuration (Claude Desktop / Claude Code):
 
 ```json
@@ -88,10 +107,13 @@ Dated 2026-07-10. Each claim below is implemented in code and verified by the
 test suite where testable (`test/`); design properties cite the implementing
 code.
 
-1. **Configuration values never appear in output.** The access token is read
-   only from the environment. Error messages are shaped, size-bounded, and
-   passed through a redaction guard so upstream API messages cannot echo the
-   value back (`src/vercel.ts`).
+1. **Configured values never appear in an error.** The access token is read
+   only from the environment. Error text is shaped, size-bounded, and passed
+   through a redaction guard once, where it becomes client-visible text, so
+   an upstream API message cannot echo the token or the team id back
+   (`src/vercel.ts`). A successful result is a fixed projection of the
+   upstream body and is not redacted, so a team identifier that the Vercel
+   API itself returns inside a deployment URL still appears there.
 2. **stdout belongs to the protocol.** All diagnostics go to stderr
    (`src/index.ts`), so no log line can leak into a tool response.
 3. **Minimal footprint.** The tools are read-only observations of projects

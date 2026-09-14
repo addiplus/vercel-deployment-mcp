@@ -5,17 +5,20 @@ How this server is validated. Everything below is reproducible from a clean clon
 
 ## Test suite
 
-Three files, run with vitest.
+Four files, run with vitest.
 
 - `test/vercel.test.ts`: the API client. Configuration handling, credential redaction
-  (token and team id, at both the request site and the client boundary), error shaping and
-  size bounds (upstream messages are cut to 400 chars, client strings to 500), rate-limit
-  and auth hints, network failures, the 30-second request timeout, non-JSON error bodies,
+  (token and team id, applied once where an error becomes client-visible text, including an
+  upstream message long enough that a configured value straddles the cut), error shaping and
+  the single 500-char bound on client-visible error text, rate-limit and auth hints,
+  network failures, the 30-second request timeout, non-JSON error bodies,
   the hardcoded fallback for non-Error throws, the request throttle (minimum start-to-start
   spacing and the concurrency cap, both driven by an injected fake clock/sleep, no
   real-time waits), `resolveThrottleOptions` env parsing (defaults of 250ms / 4, a
   non-numeric or negative value falling back to the default, `minIntervalMs: 0` disabling
-  spacing, `maxConcurrent` flooring at 1), and the HTTP 429 retry rule: a numeric
+  spacing, `maxConcurrent` flooring at 1, a configured interval above the 60000 ms ceiling
+  being reduced to it with one line on stderr while a value at the ceiling passes
+  silently), and the HTTP 429 retry rule: a numeric
   `Retry-After` of 10 seconds or less waits that long (through the injected sleep) and
   retries exactly once, while an absent, non-numeric, or over-10 `Retry-After` does not
   retry and surfaces the 429 as-is; a retried request still redacts credentials from
@@ -31,9 +34,14 @@ Three files, run with vitest.
   declared non-empty (`.min(1)`), so a blank string fails at the input-schema boundary
   instead of silently widening to an unfiltered list (asserted by parsing against each
   tool's captured input schema),
-  while a non-empty value still produces the matching `receipt.appliedFilters`; and a 2xx
-  body where `data.projects` or `data.deployments` is present but not an array is rejected
-  before it reaches the response mapping, as `isError: true`.
+  while a non-empty value still produces the matching `receipt.appliedFilters`;
+  string arguments are bounded above as well (`search` at 4096 characters, `projectId`,
+  `state`, `idOrName` and `idOrUrl` at 512, with the bound published in the input schema);
+  an identifier made only of dots is refused, and every accepted identifier leaves exactly
+  one path segment under the tool's endpoint; an unreadable timestamp is omitted from that
+  one item instead of failing the page, and a timestamp of 0 is reported as the epoch; and
+  a 2xx body where `data.projects` or `data.deployments` is present but not an array is
+  rejected before it reaches the response mapping, as `isError: true`.
 - `test/stdio-purity.test.ts`: the built server as a black box. Spawns `dist/index.js`
   with a stubbed global `fetch` (rejecting any request outside `https://api.vercel.com` or
   with a body or a non-GET method) and runs a real initialize / tools/list / tools/call
@@ -49,6 +57,14 @@ Three files, run with vitest.
   as a top-level error or a shaped tool error; every stdout line is a JSON-RPC frame; the
   startup banner goes to stderr and never to stdout; and no tool-call response frame (the
   successful calls and the 403 error) contains the configured token or team id.
+- `test/suite/protocol.test.ts`: the built server as a black box, at the transport and
+  handshake boundary. A tool request sent before the initialization handshake completes is
+  refused with JSON-RPC `-32600` and no upstream request is made for it, while `ping` is
+  answered throughout and the same calls succeed once the handshake is done; closing the
+  host's read end of stdout produces one transport error line on stderr and exit status 0,
+  with no Node stack and no installation paths; a frame above the 10485760-byte limit is
+  dropped with exactly one stderr line naming the limit, and the next request is answered
+  normally.
 
 ## Beyond the suite
 
@@ -59,6 +75,9 @@ Three files, run with vitest.
   missing required argument, and a call with no configuration at all.
 - End-to-end against the live Vercel API from a real stdio client: all four tools return
   correct live data; diagnostics stay on stderr.
+- Memory check, run by hand rather than in the suite because the reading is not portable:
+  write 256 MB to stdin with no newline and watch resident memory stay flat while one line
+  on stderr reports the dropped frame.
 - CI runs build + tests on ubuntu-latest and windows-latest with Node 22 and 24.
 
 ## Notes

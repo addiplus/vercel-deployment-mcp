@@ -28,6 +28,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   runs before the 500-character bound is applied, so a configured value
   that straddles the cut can no longer leave its first characters behind.
 
+- Documentation: the credential statement in `README.md` now says the
+  guarantee covers the error text the server composes, and that a
+  successful result is a fixed projection of the upstream body that is not
+  redacted, so a team identifier the Vercel API itself returns inside a
+  deployment URL still appears there. `TESTING.md` describes the single
+  redaction point and the single bound.
+
 ### Changed
 
 - `tools/list` and `tools/call` are answered only after the client has
