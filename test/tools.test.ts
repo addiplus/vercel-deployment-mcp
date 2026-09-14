@@ -505,6 +505,48 @@ describe("string arguments are bounded above as well as below", () => {
   });
 });
 
+describe("identifiers that would move the request off the endpoint are rejected", () => {
+  it("rejects an identifier made only of dots and keeps ordinary values", () => {
+    for (const [tool, field] of [
+      ["get_project", "idOrName"],
+      ["get_deployment", "idOrUrl"],
+    ] as const) {
+      const schema = z.object(getTools().get(tool)!.meta.inputSchema);
+      for (const bad of [".", "..", "..."]) {
+        expect(schema.safeParse({ [field]: bad }).success, `${tool} ${bad}`).toBe(false);
+      }
+      for (const good of ["prj_1", "%2e%2e", "a/../..", "app.vercel.app"]) {
+        expect(schema.safeParse({ [field]: good }).success, `${tool} ${good}`).toBe(true);
+      }
+    }
+  });
+
+  it("keeps one path segment under the tool's endpoint for every accepted value", async () => {
+    const tools = getTools();
+    for (const [tool, field, prefix] of [
+      ["get_project", "idOrName", "/v9/projects/"],
+      ["get_deployment", "idOrUrl", "/v13/deployments/"],
+    ] as const) {
+      for (const value of ["prj_1", "%2e%2e", "a/../..", "my proj/x"]) {
+        let seen = "";
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async (url: RequestInfo | URL) => {
+            seen = String(url);
+            return new Response(JSON.stringify({ id: "prj_1", name: "demo" }), { status: 200 });
+          }),
+        );
+        await tools.get(tool)!.handler({ [field]: value });
+        const { pathname } = new URL(seen);
+        expect(pathname.startsWith(prefix), `${tool} ${value} -> ${pathname}`).toBe(true);
+        const segment = pathname.slice(prefix.length);
+        expect(segment.length, `${tool} ${value}`).toBeGreaterThan(0);
+        expect(segment.includes("/"), `${tool} ${value}`).toBe(false);
+      }
+    }
+  });
+});
+
 describe("receipt.appliedFilters for valid filters", () => {
   it("list_projects records search once applied", async () => {
     const tools = getTools();

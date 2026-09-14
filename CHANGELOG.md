@@ -48,6 +48,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   instead of an unhandled error event, status 1, and a stack carrying
   installation paths.
 
+- `get_project` and `get_deployment` refuse an identifier made only of
+  dots. `.` or `..` was accepted and the URL parser then removed the
+  segment, so the request went to a different endpoint while the result's
+  receipt still reported the documented one.
+
 ## [0.2.0] - 2026-07-10
 
 ### Changed

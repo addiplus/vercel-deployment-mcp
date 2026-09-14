@@ -29,6 +29,11 @@ const READ_ONLY_ANNOTATIONS = {
 const MAX_IDENTIFIER_LEN = 512;
 const MAX_SEARCH_LEN = 4096;
 
+// A path segment made only of dots is removed by the URL parser, which would move
+// the request off this tool's endpoint while the receipt still named it.
+const NOT_DOT_SEGMENT_MESSAGE = "must not consist only of dots";
+const isNotDotSegment = (value: string) => !/^\.+$/.test(value);
+
 const ProjectResultSchema = z.strictObject({
   id: z.string(),
   name: z.string(),
@@ -194,6 +199,7 @@ export function registerTools(server: McpServer): void {
           .string()
           .min(1)
           .max(MAX_IDENTIFIER_LEN)
+          .refine(isNotDotSegment, NOT_DOT_SEGMENT_MESSAGE)
           .describe("Project ID or project name"),
       },
       outputSchema: GetProjectOutputSchema,
@@ -297,6 +303,7 @@ export function registerTools(server: McpServer): void {
           .string()
           .min(1)
           .max(MAX_IDENTIFIER_LEN)
+          .refine(isNotDotSegment, NOT_DOT_SEGMENT_MESSAGE)
           .describe("Deployment ID (dpl_…) or deployment URL"),
       },
       outputSchema: GetDeploymentOutputSchema,
