@@ -68,7 +68,9 @@ Four files, run with vitest.
   answered throughout and the same calls succeed once the handshake is done; a tool request
   whose only predecessor is an `initialized` notification that no `initialize` request came
   before is refused the same way, with no upstream request, and the handshake still completes
-  normally afterwards; a request written in the same chunk as the notification of a real
+  normally afterwards; a tool request whose handshake rests on an `initialize` the server
+  rejected is refused the same way, so only a request the server can answer counts as the
+  first half; a request written in the same chunk as the notification of a real
   handshake is served rather than refused, and so is a call written in the same chunk as
   the whole handshake, `initialize` request included, with each response carrying its own
   request's id and the handshake answered first; closing the

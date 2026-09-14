@@ -47,10 +47,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Changed
 
 - `tools/list` and `tools/call` are answered only after the client has
-  completed the initialization handshake: an `initialize` request,
-  followed by `notifications/initialized`. Both halves are required, and a
-  notification that arrives before any `initialize` request ends nothing,
-  so it does not make a following tool request answerable. A client that
+  completed the initialization handshake: an `initialize` request the
+  server can answer, followed by `notifications/initialized`. Both halves
+  are required, and a notification that arrives before any `initialize`
+  request, or after one the server rejects, ends nothing, so it does not
+  make a following tool request answerable. A client that
   writes both halves and its first call in a single write is served: the
   handshake is counted as its frames go past, so the client does not have
   to wait for the initialize response before sending anything else. A tool

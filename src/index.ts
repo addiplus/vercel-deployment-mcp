@@ -9,7 +9,7 @@
 import { PassThrough } from "node:stream";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import { InitializeRequestSchema, type JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { registerTools } from "./tools.js";
 import { getConfig, redactValues, type VercelConfig } from "./vercel.js";
 
@@ -89,8 +89,10 @@ let initialized = false;
 // The request is counted here, as its frame goes past, rather than read back
 // from the server afterwards: the server records the client's capabilities a
 // turn later than the frame arrives, and a client that writes its whole
-// handshake in one go does not wait that long. The server's own record still
-// counts, which covers a request this wrapper never saw.
+// handshake in one go does not wait that long. Only a request the server can
+// answer counts, which is why the reading below is the server's own schema for
+// it rather than a second opinion about what one looks like. The server's own
+// record still counts too, which covers a request this wrapper never saw.
 let initializeRequested = false;
 const initializeAnswered = () =>
   initializeRequested || server.server.getClientCapabilities() !== undefined;
@@ -146,7 +148,13 @@ transport.onmessage = (message) => {
   const frame = message as { method?: unknown; id?: unknown };
   const isRequest =
     typeof frame.method === "string" && frame.id !== undefined && frame.id !== null;
-  if (isRequest && frame.method === INITIALIZE_REQUEST) initializeRequested = true;
+  if (
+    isRequest &&
+    frame.method === INITIALIZE_REQUEST &&
+    InitializeRequestSchema.safeParse(message).success
+  ) {
+    initializeRequested = true;
+  }
   // Initialization ends as this notification goes past, rather than a turn
   // later when its handler runs, so a client that puts its first request in the
   // same write as the notification is not refused.

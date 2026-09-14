@@ -401,6 +401,44 @@ describe("the initialization handshake", () => {
   );
 
   it(
+    "refuses a tool request when the initialize before it was not one the server can answer",
+    async () => {
+      const server = await startServer();
+      try {
+        // An initialize the server rejects, the notification, and a call, all
+        // in one write. The first half of the handshake never happened, so the
+        // notification that follows it still completes nothing.
+        server.child.stdin.write(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }) +
+            "\n" +
+            JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) +
+            "\n" +
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 2,
+              method: "tools/call",
+              params: { name: "get_project", arguments: { idOrName: "half_handshake" } },
+            }) +
+            "\n",
+        );
+
+        const refused = await server.waitForFrame(2);
+        expect(refused.error?.code).toBe(-32600);
+        expect(refused.result).toBeUndefined();
+        expect(server.requests()).toHaveLength(0);
+
+        // A real handshake after that still works.
+        await server.initialize();
+        const listAfter = await server.rpc(3, "tools/list");
+        expect(listAfter.result?.tools).toHaveLength(4);
+      } finally {
+        server.stop();
+      }
+    },
+    20_000,
+  );
+
+  it(
     "serves a call written in the same chunk as the whole handshake",
     async () => {
       const server = await startServer();
