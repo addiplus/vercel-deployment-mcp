@@ -67,12 +67,14 @@ Eight files, run with vitest.
   `initialize` sent on the pinned connection is then refused with `-32022` carrying
   `data.supported` of `["2026-07-28"]`, which is the frame the pre-`serveStdio` wiring
   could not produce; every stdout line is a JSON-RPC frame; and the startup banner goes to
-  stderr and never to stdout. stderr is asserted exactly here too, and on this era it is two
-  lines: the banner, then one transport-error line reporting the refusal the server just
-  sent, in the form `vercel-deployment-mcp transport error: <message>`. That line is one
-  line, never a stack, capped at 400 characters, and passed through the same credential
-  redaction the API client uses, which a second case in the file proves by claiming the
-  configured token as a protocol revision and asserting the reporter writes `[redacted]`.
+  stderr and never to stdout. stderr is asserted exactly here too, and in this test it is
+  two lines: the banner, then one transport-error line reporting the refusal the server
+  just sent, in the form `vercel-deployment-mcp transport error: <message>`. Two lines are a
+  property of that provoked refusal and not of the era: a 2026-07-28 session that provokes
+  nothing gets the banner and nothing else. That line is one line, never a stack, capped
+  at 400 characters, and passed through the same credential redaction the API client uses,
+  which a second case in the file proves by claiming the configured token as a protocol
+  revision and asserting the reporter writes `[redacted]`.
 - `test/suite/`: four lenses on the same built server, all hand-written frames, no client
   library. `protocol.test.ts` pins protocol conformance on both eras and that the era is
   decided per connection; `contracts.test.ts` pins what the published input and output

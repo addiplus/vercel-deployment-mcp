@@ -17,8 +17,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   `[redacted]`, cut to 400 characters, and never a stack or the error
   object. Commit `6b0b39e`, which moved stdio onto `serveStdio`, recorded
   this silence as a known gap in its own message; this closes it. stdout is
-  unchanged, and both black-box tests now assert the whole of stderr rather
-  than a substring, so a diagnostic appearing on a quiet path fails the suite.
+  unchanged, and the stderr contract's two files, `test/stdio-purity.test.ts`
+  and `test/stdio-era.test.ts`, now assert the whole of stderr rather than a
+  substring, so a diagnostic appearing on a quiet path fails the suite.
 - CI now runs the build, the test suite and the packed-consumer smoke on
   Node 20 as well as 22 and 24, in both matrices. `engines.node` has said
   `>=20` since the 2.0 SDK line landed; until now nothing exercised the
