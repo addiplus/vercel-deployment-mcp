@@ -150,6 +150,14 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   delimiter takes, so the two agree and a message of exactly the stated size
   is served.
 
+- There is now a bound on how many lines a transport failure can write to
+  stderr. A report repeated back to back is written twice at most, as
+  before, and at most one hundred reports are written in total, after which
+  one line says that further reports are suppressed and nothing more is
+  written. A peer that varied its malformed input could otherwise write one
+  line per message with no bound, on the channel the reporter exists to
+  write to.
+
 ### Security
 
 - Redaction of the configured token and team id in error text replaced

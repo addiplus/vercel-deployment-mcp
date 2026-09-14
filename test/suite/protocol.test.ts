@@ -1308,6 +1308,36 @@ describe("transport failures", () => {
     },
     40_000,
   );
+
+  it(
+    "stops writing transport reports after a hundred of them and says so once",
+    async () => {
+      const server = await startServer();
+      try {
+        await server.initialize();
+        const before = server.stderr().length;
+        // Alternating shapes, so no two reports in a row are identical and the
+        // repeat rule never applies: what bounds this is the count alone.
+        for (let i = 0; i < 500; i++) server.child.stdin.write(`${i % 2 === 0 ? "1" : '"a"'}\n`);
+        const ping = await server.rpc(60, "ping");
+        expect(ping.result).toBeDefined();
+        const written = server
+          .stderr()
+          .slice(before)
+          .split("\n")
+          .filter((line) => line.startsWith("vercel-deployment-mcp transport error: "));
+        expect(written).toHaveLength(101);
+        expect(written[100]).toContain("further transport errors suppressed");
+        expect(
+          written.filter((line) => line.includes("further transport errors suppressed")),
+        ).toHaveLength(1);
+        expect(server.child.exitCode).toBeNull();
+      } finally {
+        server.stop();
+      }
+    },
+    40_000,
+  );
 });
 
 describe("the initialization handshake", () => {
