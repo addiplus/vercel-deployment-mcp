@@ -22,11 +22,28 @@ registerTools(server);
 
 const TRANSPORT_ERROR_PREFIX = "vercel-deployment-mcp transport error: ";
 const MAX_TRANSPORT_MESSAGE_LEN = 400;
+const REPEAT_SUPPRESSED_SUFFIX = " (repeated; further identical reports suppressed)";
+
+// The peer decides how often a transport failure happens, so it would otherwise
+// decide how many lines this process writes to someone else's log. Only the
+// previous report is remembered, which is all a run of identical failures needs.
+let lastReport: string | undefined;
+let repeatAnnounced = false;
+
+function writeReport(line: string): void {
+  try {
+    console.error(line);
+  } catch {
+    /* the diagnostic channel is gone as well; there is nowhere left to report */
+  }
+}
 
 /**
  * Report an out of band transport failure on stderr: one line, whitespace
- * collapsed, configured values replaced, and bounded in length. stdout is the
- * protocol channel, so nothing here may write there.
+ * collapsed, configured values replaced, and bounded in length. The same report
+ * repeated back to back is written twice at most, the second time to say the
+ * rest are not being written. stdout is the protocol channel, so nothing here
+ * may write there.
  */
 function reportTransportError(err: unknown): void {
   const raw = err instanceof Error ? err.message : String(err);
@@ -40,11 +57,15 @@ function reportTransportError(err: unknown): void {
     0,
     MAX_TRANSPORT_MESSAGE_LEN,
   );
-  try {
-    console.error(TRANSPORT_ERROR_PREFIX + safe);
-  } catch {
-    /* the diagnostic channel is gone as well; there is nowhere left to report */
+  if (safe === lastReport) {
+    if (repeatAnnounced) return;
+    repeatAnnounced = true;
+    writeReport(TRANSPORT_ERROR_PREFIX + safe + REPEAT_SUPPRESSED_SUFFIX);
+    return;
   }
+  lastReport = safe;
+  repeatAnnounced = false;
+  writeReport(TRANSPORT_ERROR_PREFIX + safe);
 }
 
 // The protocol channel is gone, so there is nothing left to serve. Report it and

@@ -229,6 +229,34 @@ describe("transport failures", () => {
     },
     20_000,
   );
+
+  it(
+    "writes one line for a repeated oversized frame, then stops writing it",
+    async () => {
+      const server = await startServer();
+      try {
+        await server.initialize();
+        const megabyte = "x".repeat(1024 * 1024);
+        for (let frame = 0; frame < 3; frame++) {
+          for (let i = 0; i < 11; i++) server.child.stdin.write(megabyte);
+          server.child.stdin.write("\n");
+        }
+        const ping = await server.rpc(30, "ping");
+        expect(ping.result).toBeDefined();
+        const reported = server
+          .stderr()
+          .split("\n")
+          .filter((line) => line.includes("stdin frame exceeded"));
+        expect(reported).toHaveLength(2);
+        expect(reported[0]).not.toContain("suppressed");
+        expect(reported[1]).toContain("further identical reports suppressed");
+        expect(server.child.exitCode).toBeNull();
+      } finally {
+        server.stop();
+      }
+    },
+    30_000,
+  );
 });
 
 describe("the initialization handshake", () => {

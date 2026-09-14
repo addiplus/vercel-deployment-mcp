@@ -73,7 +73,8 @@ Four files, run with vitest.
   host's read end of stdout produces one transport error line on stderr and exit status 0,
   with no Node stack and no installation paths; a frame above the 10485760-byte limit is
   dropped with exactly one stderr line naming the limit, and the next request is answered
-  normally.
+  normally; and three oversized frames in a row produce two lines rather than three, the
+  second saying that further identical reports are suppressed.
 
 ## Beyond the suite
 

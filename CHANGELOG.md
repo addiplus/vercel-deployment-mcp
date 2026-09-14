@@ -69,6 +69,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   all before, so a peer that never sent a newline grew the process without
   bound and stalled its own next request.
 
+- A transport failure repeated back to back is written to stderr twice at
+  most: once for the failure, and once to say that further identical
+  reports are suppressed. A peer decides how often a transport failure
+  happens, so without this it decided how many lines this process wrote to
+  the host log.
+
 ### Fixed
 
 - A closed stdout no longer crashes the server. The write error is
