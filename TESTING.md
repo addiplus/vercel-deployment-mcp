@@ -60,7 +60,11 @@ Four files, run with vitest.
 - `test/suite/protocol.test.ts`: the built server as a black box, at the transport and
   handshake boundary. A tool request sent before the initialization handshake completes is
   refused with JSON-RPC `-32600` and no upstream request is made for it, while `ping` is
-  answered throughout and the same calls succeed once the handshake is done; closing the
+  answered throughout and the same calls succeed once the handshake is done; a tool request
+  whose only predecessor is an `initialized` notification that no `initialize` request came
+  before is refused the same way, with no upstream request, and the handshake still completes
+  normally afterwards; a request written in the same chunk as the notification of a real
+  handshake is served rather than refused; closing the
   host's read end of stdout produces one transport error line on stderr and exit status 0,
   with no Node stack and no installation paths; a frame above the 10485760-byte limit is
   dropped with exactly one stderr line naming the limit, and the next request is answered

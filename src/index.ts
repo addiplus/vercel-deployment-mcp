@@ -60,9 +60,15 @@ const INITIALIZED_NOTIFICATION = "notifications/initialized";
 const PRE_INITIALIZE_MESSAGE = "Received a request before initialization completed.";
 
 let initialized = false;
-server.server.oninitialized = () => {
-  initialized = true;
+// Both halves of the handshake are required, and in that order. The server
+// records the client's capabilities only while answering a real initialize
+// request, so that is the half a peer cannot simply assert; an initialized
+// notification that arrives before any initialize ends nothing.
+const initializeAnswered = () => server.server.getClientCapabilities() !== undefined;
+const endInitialization = () => {
+  if (initializeAnswered()) initialized = true;
 };
+server.server.oninitialized = endInitialization;
 
 const MAX_FRAME_BYTES = 10 * 1024 * 1024;
 
@@ -114,7 +120,7 @@ transport.onmessage = (message) => {
   // Initialization ends as this notification goes past, rather than a turn
   // later when its handler runs, so a client that puts its first request in the
   // same write as the notification is not refused.
-  if (!isRequest && frame.method === INITIALIZED_NOTIFICATION) initialized = true;
+  if (!isRequest && frame.method === INITIALIZED_NOTIFICATION) endInitialization();
   if (isRequest && !initialized && !OPEN_BEFORE_INITIALIZE.has(frame.method as string)) {
     const refusal: JSONRPCMessage = {
       jsonrpc: "2.0",

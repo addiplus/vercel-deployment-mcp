@@ -38,12 +38,16 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Changed
 
 - `tools/list` and `tools/call` are answered only after the client has
-  completed the initialization handshake. A tool request that arrives
-  before `notifications/initialized` is refused with JSON-RPC error
-  `-32600`, and no Vercel API request is made for it. `initialize` and
-  `ping` are answered at any time, as before. Previously a tool request
-  sent before the handshake was served, and the request left for the
-  Vercel API carrying the configured token.
+  completed the initialization handshake: an `initialize` request the
+  server has answered, followed by `notifications/initialized`. Both
+  halves are required, and a notification that arrives before any
+  `initialize` request ends nothing, so it does not make a following tool
+  request answerable. A tool request that arrives before the handshake is
+  complete is refused with JSON-RPC error `-32600`, and no Vercel API
+  request is made for it. `initialize` and `ping` are answered at any
+  time, as before. Previously a tool request sent before the handshake was
+  served, and the request left for the Vercel API carrying the configured
+  token.
 
 - String tool arguments now declare a maximum length: 4096 characters for
   `search`, and 512 characters for `projectId`, `state`, `idOrName` and

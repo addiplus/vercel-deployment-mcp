@@ -269,6 +269,37 @@ describe("the initialization handshake", () => {
   );
 
   it(
+    "refuses a tool request when the initialized notification is all that came before it",
+    async () => {
+      const server = await startServer();
+      try {
+        // The notification on its own, with no initialize request ever sent.
+        server.send({ jsonrpc: "2.0", method: "notifications/initialized" });
+
+        const listAfterNotification = await server.rpc(1, "tools/list");
+        expect(listAfterNotification.error?.code).toBe(-32600);
+        expect(listAfterNotification.result).toBeUndefined();
+
+        const callAfterNotification = await server.rpc(2, "tools/call", {
+          name: "get_project",
+          arguments: { idOrName: "notification_only" },
+        });
+        expect(callAfterNotification.error?.code).toBe(-32600);
+        expect(callAfterNotification.result).toBeUndefined();
+        expect(server.requests()).toHaveLength(0);
+
+        // A real handshake after that still works, and only then is a tool served.
+        await server.initialize();
+        const listAfterHandshake = await server.rpc(3, "tools/list");
+        expect(listAfterHandshake.result?.tools).toHaveLength(4);
+      } finally {
+        server.stop();
+      }
+    },
+    20_000,
+  );
+
+  it(
     "serves a request written in the same chunk as the initialized notification",
     async () => {
       const server = await startServer();
