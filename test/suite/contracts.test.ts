@@ -232,6 +232,7 @@ type Schema = {
   required?: string[];
   additionalProperties?: boolean;
   minLength?: number;
+  maxLength?: number;
   maximum?: number;
   minimum?: number;
   maxItems?: number;
@@ -497,6 +498,22 @@ describe("published tool schemas", () => {
       const prop = team.tool(tool).inputSchema?.properties?.[field];
       expect(prop?.type, `${tool}.${field}`).toBe("string");
       expect(prop?.minLength, `${tool}.${field}`).toBe(1);
+    }
+  });
+
+  it("publishes the maximum length on every string input", async () => {
+    // Catches max() surviving in code but vanishing from the published schema, so
+    // clients stop pre-rejecting a value the server will refuse anyway.
+    const bounds: Array<[string, string, number]> = [
+      ["list_projects", "search", 4096],
+      ["list_deployments", "projectId", 512],
+      ["list_deployments", "state", 512],
+      ["get_project", "idOrName", 512],
+      ["get_deployment", "idOrUrl", 512],
+    ];
+    for (const [tool, field, max] of bounds) {
+      const prop = team.tool(tool).inputSchema?.properties?.[field];
+      expect(prop?.maxLength, `${tool}.${field}`).toBe(max);
     }
   });
 
