@@ -446,6 +446,24 @@ describe("published tool schemas", () => {
     }
   });
 
+  it("publishes each tool entry with exactly the members this line emits", async () => {
+    // Catches a member appearing on the tool entry itself, or one leaving without
+    // the documents saying so. `execution` is the one that left: the 1.x SDK filled
+    // it in with taskSupport "forbidden" on every tool, which this repo never set,
+    // so a client reading it was reading the SDK rather than this server.
+    for (const tool of team.tools) {
+      expect(Object.keys(tool).sort(), tool.name).toEqual([
+        "annotations",
+        "description",
+        "inputSchema",
+        "name",
+        "outputSchema",
+        "title",
+      ]);
+      expect(tool, tool.name).not.toHaveProperty("execution");
+    }
+  });
+
   it("declares the JSON Schema 2020-12 dialect on every output schema", async () => {
     // Catches an output schema emitted under an older dialect, where the same keywords mean something else.
     for (const tool of team.tools) {

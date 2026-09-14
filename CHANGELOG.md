@@ -36,12 +36,20 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - The server is built against the `@modelcontextprotocol` 2.0 SDK line.
   `@modelcontextprotocol/server` (root barrel plus the `/stdio` subpath)
   replaces `@modelcontextprotocol/sdk` for `McpServer` and
-  `ToolAnnotations`. Two consequences are visible on the wire: tool
-  schemas are emitted under JSON Schema 2020-12 rather than draft-07,
-  and a call with invalid arguments still comes back as a tool result
+  `ToolAnnotations`. Four consequences are visible on the wire. Tool
+  schemas are emitted under JSON Schema 2020-12 rather than draft-07. A
+  call with invalid arguments still comes back as a tool result
   with `isError: true`, but its text no longer carries
-  `MCP error -32602:`. A client that matched `-32602` in that text must
-  match the validation message or the field name instead.
+  `MCP error -32602:`; a client that matched `-32602` in that text must
+  match the validation message or the field name instead. A call naming
+  a tool that does not exist comes back as a JSON-RPC error frame with
+  code `-32602` rather than as a tool result with `isError: true`, so a
+  client that read the miss out of the result's text now reads it off
+  the error member. And a tool entry in a `tools/list` result no longer
+  carries an `execution` member: the 1.x SDK added one saying
+  `taskSupport: "forbidden"` to every tool, which this server never set
+  and this SDK line does not emit, so a client reading that member was
+  reading the SDK rather than the server and now finds nothing there.
 - stdio is now served through the SDK's `serveStdio` helper, so one
   binary serves both protocol eras from one tool registration. A client
   that claims protocol revision `2026-07-28` in a per-request `_meta`

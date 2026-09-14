@@ -120,7 +120,9 @@ Eight files, run with vitest.
   frames of alternating shape produce one hundred and one lines, the last of which says
   that further reports are suppressed.
   `contracts.test.ts` pins what the published input and output
-  schemas promise and whether the structured content keeps that promise; `upstream.test.ts`
+  schemas promise, the member set of each published tool entry (an `execution`
+  member the previous SDK line added to every tool is gone, and nothing else on the
+  entry moved with it), and whether the structured content keeps that promise; `upstream.test.ts`
   pins upstream failure modes and credential safety; `invariants.test.ts` pins what must
   not drift between calls, between connections, between a payload and its own
   serialization, and between the source, the package manifest and the built artifact.
