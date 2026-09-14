@@ -3,7 +3,12 @@ import { createRequire } from "node:module";
 import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 
-const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
+const requireJson = createRequire(import.meta.url);
+const pkg = requireJson("../package.json") as { name: string; version: string };
+const manifest = requireJson("../server.json") as {
+  version: string;
+  packages: Array<{ identifier: string; version: string }>;
+};
 
 function send(child: ChildProcessWithoutNullStreams, msg: unknown): void {
   child.stdin.write(JSON.stringify(msg) + "\n");
@@ -289,4 +294,16 @@ describe("stdio purity", () => {
     },
     20_000,
   );
+});
+
+// server.json is the registry manifest and is not part of the npm tarball, so
+// nothing else in the suite reads it. Left unchecked it keeps the previous
+// version through a release and the registry then describes a package that does
+// not exist at that version.
+describe("release manifest", () => {
+  it("carries the package.json version and name", () => {
+    expect(manifest.version).toBe(pkg.version);
+    expect(manifest.packages[0]?.version).toBe(pkg.version);
+    expect(manifest.packages[0]?.identifier).toBe(pkg.name);
+  });
 });
