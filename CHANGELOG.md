@@ -36,7 +36,7 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - The server is built against the `@modelcontextprotocol` 2.0 SDK line.
   `@modelcontextprotocol/server` (root barrel plus the `/stdio` subpath)
   replaces `@modelcontextprotocol/sdk` for `McpServer` and
-  `ToolAnnotations`. Four consequences are visible on the wire. Tool
+  `ToolAnnotations`. Five consequences are visible on the wire. Tool
   schemas are emitted under JSON Schema 2020-12 rather than draft-07. A
   call with invalid arguments still comes back as a tool result
   with `isError: true`, but its text no longer carries
@@ -45,7 +45,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   a tool that does not exist comes back as a JSON-RPC error frame with
   code `-32602` rather than as a tool result with `isError: true`, so a
   client that read the miss out of the result's text now reads it off
-  the error member. And a tool entry in a `tools/list` result no longer
+  the error member. A call whose `arguments` member is present but is
+  not a JSON object, an array or `null` say, comes back with code
+  `-32602` and a message opening `Invalid tools/call request:`, where
+  the 1.x line answered the same call with `-32603` and no prefix, so a
+  client that branched on the internal-error code now sees an
+  invalid-params one. And a tool entry in a `tools/list` result no longer
   carries an `execution` member: the 1.x SDK added one saying
   `taskSupport: "forbidden"` to every tool, which this server never set
   and this SDK line does not emit, so a client reading that member was

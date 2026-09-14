@@ -440,6 +440,35 @@ describe("2025 era over stdio", () => {
     expect(frame.error?.code).toBe(INVALID_PARAMS);
   });
 
+  // Catches the 1.x line's answer to the same call coming back here: that line refused a
+  // non-object `arguments` member with `-32603`, JSON-RPC's internal error, and no prefix,
+  // so a host branching on the code would read a server fault where this line reports
+  // invalid params. An array or `null` is the shape a client reaches by accident.
+  it("refuses a non-object arguments member with -32602 and names the request", async () => {
+    const s = start();
+    await s.handshake2025();
+    const shapes: Array<[string, unknown]> = [
+      ["array", []],
+      ["null", null],
+    ];
+    shapes.forEach(([, args], index) => {
+      s.send({
+        jsonrpc: "2.0",
+        id: 10 + index,
+        method: "tools/call",
+        params: { name: "get_project", arguments: args },
+      });
+    });
+    for (const [index, [label]] of shapes.entries()) {
+      const frame = await s.waitFor(10 + index);
+      expect(frame.result, `arguments: ${label} came back as a tool result`).toBeUndefined();
+      expect(frame.error?.code, `arguments: ${label} carried the wrong code`).toBe(INVALID_PARAMS);
+      expect(frame.error?.message, `arguments: ${label} lost the prefix`).toMatch(
+        /^Invalid tools\/call request:/,
+      );
+    }
+  });
+
   // Catches an id that is coerced (number to string, string to number) or renumbered:
   // a host correlating answers by id would attach the answer to the wrong request.
   it("echoes every request id back unchanged, type included", async () => {
