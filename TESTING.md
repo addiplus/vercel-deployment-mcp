@@ -94,7 +94,10 @@ Eight files, run with vitest.
   decided per connection, and the transport and handshake boundary: a claim-less tool
   request sent before the initialization handshake completes is refused with JSON-RPC
   `-32600` and no upstream request is made for it, while a request claiming revision
-  `2026-07-28` is answered without any handshake at all; `ping` is answered throughout and
+  `2026-07-28` is answered without any handshake at all; a `tools/call` carrying that
+  claim as the connection's first and only frame is served, with one upstream request
+  made for it carrying the configured token, while the same first-frame call claiming a
+  revision the server does not serve is refused with none; `ping` is answered throughout and
   the same calls succeed once the handshake is done; a tool request whose only predecessor
   is an `initialized` notification that no `initialize` request came before is refused the same
   way, with no upstream request, and the handshake still completes normally afterwards; a

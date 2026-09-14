@@ -107,12 +107,23 @@ an `initialize` request the server can answer, followed by
 `notifications/initialized`. Both halves are required, so the notification on
 its own completes nothing, and neither does an `initialize` the server rejects.
 This applies to a request that claims no protocol revision, which is every
-2025-era request. A request that claims revision `2026-07-28` in its
-`params._meta` envelope negotiates on the request itself and is answered
-without an `initialize`. A client that writes both halves and its first call in
-a single write is served, rather than being refused for not waiting for the
+2025-era request. A client that writes both halves and its first call in a
+single write is served, rather than being refused for not waiting for the
 initialize response. Before the handshake, those two methods are refused with
 JSON-RPC error `-32600` and no Vercel API request is made.
+
+A request that claims revision `2026-07-28` in its `params._meta` envelope
+carries its own negotiation and is answered without an `initialize`,
+`tools/call` included. On that revision the first message a connection ever
+sends can be a tool call, and it leaves for the Vercel API carrying the
+configured token. What the server checks is the claimed revision, which has to
+be one it serves, and that the envelope carries the capabilities that revision
+requires; it does not check who sent the request, and nothing in the envelope
+could tell it. Read the handshake requirement as protocol order rather than as
+a door: this transport has no notion of who the peer is in either era, and a
+2025-era caller reaches the same tool by writing the handshake and the call
+together in one go, which the suite covers. Give the process a token whose
+scope you would give anything that can write to its stdin.
 
 Example client configuration (Claude Desktop / Claude Code):
 

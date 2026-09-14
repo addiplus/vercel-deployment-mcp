@@ -97,9 +97,16 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 - The handshake requirement applies only to a request that claims no
   protocol revision. A request that claims revision `2026-07-28` in its
-  `params._meta` envelope negotiates the revision on the request itself, so
-  it is answered without an `initialize` and the 2026-07-28 era is
-  unchanged. `initialize` and `ping` are answered at any time, as before.
+  `params._meta` envelope carries its own negotiation, so it is answered
+  without an `initialize` and the 2026-07-28 era is unchanged. That
+  includes `tools/call`: on that revision the first message a connection
+  sends can be a tool call, and it leaves for the Vercel API carrying the
+  configured token. The server checks that the claimed revision is one it
+  serves and that the envelope carries the capabilities that revision
+  requires; it does not check who sent the request, and neither era does.
+  Writing to this server's stdin is what reaches its tools, on the 2025
+  era in three frames of a single write and on this one in one frame.
+  `initialize` and `ping` are answered at any time, as before.
 
 - Documentation: `README.md` records the bound on how many transport
   reports one process writes, states that the handshake requirement

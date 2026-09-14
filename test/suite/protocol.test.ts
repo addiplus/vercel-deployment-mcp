@@ -1378,6 +1378,63 @@ describe("the initialization handshake", () => {
   );
 
   it(
+    "serves a call carrying its own revision claim as the first frame, and spends the credential on it",
+    async () => {
+      const server = await startServer();
+      try {
+        // The only message this connection ever sends. On revision 2026-07-28
+        // the negotiation travels on the request, so there is no handshake for
+        // it to wait on and one tool call is a whole exchange. What the case
+        // pins is how far that reaches: the call is answered and one request
+        // leaves for the Vercel API carrying the configured token, which is
+        // the part the documents have to state plainly rather than imply.
+        const call = await server.rpc(1, "tools/call", {
+          name: "get_project",
+          arguments: { idOrName: "claimed_revision_first_frame" },
+          _meta: {
+            [META_PROTOCOL_VERSION]: MODERN_REVISION,
+            [META_CLIENT_CAPABILITIES]: {},
+          },
+        });
+        expect(call.error).toBeUndefined();
+        expect(call.result?.isError).not.toBe(true);
+        expect(server.requests()).toHaveLength(1);
+        expect(server.requests()[0]).toContain("claimed_revision_first_frame");
+        expect(server.requests()[0]).toContain('"authIsBearer":true');
+      } finally {
+        server.stop();
+      }
+    },
+    20_000,
+  );
+
+  it(
+    "makes no upstream request for a first-frame call claiming a revision it does not serve",
+    async () => {
+      const server = await startServer();
+      try {
+        // The case above with one field changed, so the revision is all that
+        // separates them: a claim this server does not serve is refused before
+        // the tool runs, and nothing leaves for the Vercel API.
+        const refused = await server.rpc(1, "tools/call", {
+          name: "get_project",
+          arguments: { idOrName: "unserved_revision_first_frame" },
+          _meta: {
+            [META_PROTOCOL_VERSION]: "2027-01-01",
+            [META_CLIENT_CAPABILITIES]: {},
+          },
+        });
+        expect(refused.result).toBeUndefined();
+        expect(refused.error?.code).toBe(UNSUPPORTED_PROTOCOL_VERSION);
+        expect(server.requests()).toHaveLength(0);
+      } finally {
+        server.stop();
+      }
+    },
+    20_000,
+  );
+
+  it(
     "refuses a tool request when the initialized notification is all that came before it",
     async () => {
       const server = await startServer();
