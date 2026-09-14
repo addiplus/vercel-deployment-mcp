@@ -95,6 +95,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   happens, so without this it decided how many lines this process wrote to
   the host log.
 
+- The handshake requirement applies only to a request that claims no
+  protocol revision. A request that claims revision `2026-07-28` in its
+  `params._meta` envelope negotiates the revision on the request itself, so
+  it is answered without an `initialize` and the 2026-07-28 era is
+  unchanged. `initialize` and `ping` are answered at any time, as before.
+
 ### Fixed
 
 - `initialize` reported `serverInfo.version` as `0.1.0` while the package

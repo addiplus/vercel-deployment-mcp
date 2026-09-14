@@ -153,6 +153,11 @@ describe("stdio era negotiation", () => {
         expect(listed.result?.resultType).toBe("complete");
         for (const tool of listed.result?.tools ?? []) expect(tool.outputSchema).toBeDefined();
 
+        // The connection reached the modern era without an initialize, which is what
+        // the handshake check has to allow: a refusal here would be -32600.
+        expect(discover.error).toBeUndefined();
+        expect(listed.error).toBeUndefined();
+
         // The connection is now pinned to 2026-07-28, so a 2025 initialize on it
         // is refused by revision rather than answered. Under the old wiring
         // (server.connect(new StdioServerTransport())) this same frame returns a

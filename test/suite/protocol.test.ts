@@ -718,6 +718,20 @@ describe("2026-07-28 era over stdio", () => {
     expect((await s.waitFor(2)).error).toBeUndefined();
   });
 
+  // Catches a handshake check written for the 2025 era refusing the newer one: a
+  // modern client never sends initialize, it claims the revision on every
+  // request, so waiting for a handshake it does not perform would close the era.
+  it("serves a modern-era request that never sent initialize", async () => {
+    const s = start();
+    s.send({ jsonrpc: "2.0", id: 1, method: "server/discover", params: { _meta: envelope() } });
+    const discovered = await s.waitFor(1);
+    expect(discovered.error).toBeUndefined();
+    s.send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: { _meta: envelope() } });
+    const listed = await s.waitFor(2);
+    expect(listed.error).toBeUndefined();
+    expect((listed.result?.tools as unknown[]).length).toBe(4);
+  });
+
   // Catches an envelope requirement that is only enforced on the opening frame: after the
   // era is pinned every request still has to carry it, or client identity silently vanishes.
   it("requires the envelope on every request of a pinned modern connection", async () => {
