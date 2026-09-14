@@ -106,6 +106,12 @@ const MAX_FRAME_BYTES = 10 * 1024 * 1024;
 // Only whole lines reach the transport, and a line longer than the limit is
 // dropped rather than buffered, so a peer that never sends a newline cannot
 // grow this process without bound.
+//
+// The limit is on the message, not on the message plus its delimiter. A
+// message is the bytes before the newline that ends it, so the newline itself
+// is not counted and a message of exactly the limit is accepted. A carriage
+// return sitting just in front of that newline is one of the bytes before it,
+// so it counts as part of the message like any other byte.
 const framed = new PassThrough();
 let frameParts: Buffer[] = [];
 let frameBytes = 0;
@@ -117,7 +123,7 @@ process.stdin.on("data", (chunk: Buffer) => {
     const newlineAt = chunk.indexOf(0x0a, from);
     const end = newlineAt === -1 ? chunk.length : newlineAt + 1;
     const piece = chunk.subarray(from, end);
-    frameBytes += piece.length;
+    frameBytes += newlineAt === -1 ? piece.length : piece.length - 1;
     if (!droppingFrame && frameBytes > MAX_FRAME_BYTES) {
       droppingFrame = true;
       frameParts = [];

@@ -74,6 +74,10 @@ surfaced as an error on the first attempt.
 | Largest accepted protocol frame | 10485760 bytes |
 | Highest accepted `VERCEL_MCP_MIN_INTERVAL_MS` | 60000 |
 
+The frame limit counts the message and not the newline that delimits it, so a
+message of exactly 10485760 bytes is accepted. Everything before that newline is
+the message, a carriage return sitting just in front of it included.
+
 Each of these limits has its own behaviour above the value in the table. An
 over-long argument fails input validation: the call comes back as a JSON-RPC
 `-32602` invalid-params result, no Vercel API request is made, and nothing is

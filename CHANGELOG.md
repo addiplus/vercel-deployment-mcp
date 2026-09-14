@@ -67,10 +67,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   value is refused as invalid input instead of being composed into an
   outbound URL.
 
-- A protocol frame larger than 10485760 bytes is dropped, one line on
-  stderr says so, and the connection keeps serving. There was no limit at
-  all before, so a peer that never sent a newline grew the process without
-  bound and stalled its own next request.
+- A protocol frame whose message is larger than 10485760 bytes is
+  dropped, one line on stderr says so, and the connection keeps serving.
+  The count is of the message itself, so the newline that ends the frame
+  is not part of it and a message of exactly that size is served. There
+  was no limit at all before, so a peer that never sent a newline grew
+  the process without bound and stalled its own next request.
 
 - A transport failure repeated back to back is written to stderr twice at
   most: once for the failure, and once to say that further identical

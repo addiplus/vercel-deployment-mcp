@@ -79,8 +79,12 @@ Four files, run with vitest.
   written no faster than the server takes it in, is dropped with exactly one stderr line
   naming the 10485760-byte limit, and the request after the newline that ends that frame is
   answered normally, which is what ties the limit to the stream the transport reads rather
-  than to the stderr line alone; and three oversized frames in a row produce two lines
-  rather than three, the second saying that further identical reports are suppressed.
+  than to the stderr line alone; a message of exactly 10485760 bytes, the newline that
+  ends its frame not counted, is answered with nothing written to stderr while the same
+  message one byte longer is dropped and the request after it is still answered, which
+  pins the limit to the message rather than to the message plus its delimiter; and three
+  oversized frames in a row produce two lines rather than three, the second saying that
+  further identical reports are suppressed.
 
 ## Beyond the suite
 

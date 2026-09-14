@@ -68,6 +68,25 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const FRAME_INTAKE_BUDGET_MS = 20_000;
 
+/** The largest message the server accepts, as the README states it. */
+const FRAME_LIMIT_BYTES = 10485760;
+
+/**
+ * A `ping` request padded to exactly `contentBytes` bytes, the newline that
+ * ends the frame excluded. The padding rides in `params`, which `ping` ignores,
+ * so the request stays one the server answers however long it grows.
+ */
+function pingLineOfContentBytes(id: number, contentBytes: number): string {
+  const build = (padding: string) =>
+    JSON.stringify({ jsonrpc: "2.0", id, method: "ping", params: { padding } });
+  const line = build("x".repeat(contentBytes - Buffer.byteLength(build(""), "utf8")));
+  const built = Buffer.byteLength(line, "utf8");
+  if (built !== contentBytes) {
+    throw new Error(`meant to build a ${contentBytes} byte message, built ${built}`);
+  }
+  return line;
+}
+
 /**
  * Write one frame of `megabytes` with no newline anywhere in it, a chunk at a
  * time so nothing piles up on this side, and give up with a readable message if
@@ -272,6 +291,48 @@ describe("transport failures", () => {
       }
     },
     30_000,
+  );
+
+  it(
+    "answers a message of exactly the limit and drops the one a byte past it",
+    async () => {
+      const server = await startServer();
+      try {
+        await server.initialize();
+        // The newline is what ends a frame, not part of the message inside it,
+        // so the message the README names is answered and the first message
+        // dropped is one byte longer. Off by one here would make the stated
+        // limit false for every client that counts what it sends.
+        const atLimit = pingLineOfContentBytes(40, FRAME_LIMIT_BYTES);
+        const pastLimit = pingLineOfContentBytes(41, FRAME_LIMIT_BYTES + 1);
+        expect(Buffer.byteLength(`${atLimit}\n`, "utf8") - 1).toBe(10485760);
+        expect(Buffer.byteLength(`${pastLimit}\n`, "utf8") - 1).toBe(10485761);
+
+        server.child.stdin.write(`${atLimit}\n`);
+        const answered = await server.waitForFrame(40, 30_000);
+        expect(answered.result).toBeDefined();
+        expect(answered.error).toBeUndefined();
+        expect(server.stderr()).not.toContain("stdin frame exceeded");
+
+        server.child.stdin.write(`${pastLimit}\n`);
+        const after = await server.rpc(42, "ping");
+        expect(after.result).toBeDefined();
+        // stdio keeps its order, so a later request answered while this one
+        // never was is the dropped frame, not a slow one.
+        expect(server.answeredIds()).not.toContain(41);
+
+        const reported = server
+          .stderr()
+          .split("\n")
+          .filter((line) => line.includes("stdin frame exceeded"));
+        expect(reported).toHaveLength(1);
+        expect(reported[0]).toContain("10485760");
+        expect(server.child.exitCode).toBeNull();
+      } finally {
+        server.stop();
+      }
+    },
+    60_000,
   );
 
   it(
