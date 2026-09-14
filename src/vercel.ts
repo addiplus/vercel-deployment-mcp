@@ -48,20 +48,52 @@ export function getConfig(env: NodeJS.ProcessEnv = process.env): VercelConfig {
 }
 
 /**
- * Replace any occurrence of the given values in text with a placeholder.
+ * Replace every occurrence of the given values in text with a placeholder.
  *
- * Every distinct value is replaced in one left-to-right pass, longest first, so
- * that no replacement text is ever rescanned. Replacing values one after the
- * other is wrong twice over: with overlapping values the shorter one goes first
- * and leaves the longer one's remainder behind, and a value that is a substring
- * of the placeholder chops up a placeholder an earlier value already wrote.
+ * Occurrences are found in the original text and nowhere else. For each
+ * configured value, every position it appears at is recorded, including
+ * positions that overlap one already found, so "aaa" is found three times in
+ * "aaaaa". The recorded ranges are then sorted, and ranges that overlap are
+ * joined into one. That join is what makes crossing values safe: "abc" and
+ * "bcd" in "abcd" cover a single range, so neither one leaves a tail behind.
+ * The text between ranges is copied through untouched, and each joined range
+ * becomes exactly one placeholder.
+ *
+ * Because the scan reads only the original text, replacement output is never
+ * rescanned, so a value that is a substring of the placeholder cannot chop up
+ * a placeholder written for another value. Ranges that merely touch are not
+ * joined, so repeats sitting next to each other keep one placeholder each and
+ * "abcabc" with the value "abc" still reads "[redacted][redacted]".
  */
 export function redactValues(text: string, values: Array<string | undefined>): string {
   const present = values.filter((v): v is string => typeof v === "string" && v.length > 0);
-  const needles = [...new Set(present)].sort((a, b) => b.length - a.length);
-  if (needles.length === 0) return text;
-  const pattern = needles.map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  return text.replace(new RegExp(pattern, "g"), "[redacted]");
+  const needles = [...new Set(present)];
+  if (needles.length === 0 || text.length === 0) return text;
+
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (const needle of needles) {
+    for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + 1)) {
+      ranges.push({ start: at, end: at + needle.length });
+    }
+  }
+  if (ranges.length === 0) return text;
+  ranges.sort((a, b) => a.start - b.start || a.end - b.end);
+
+  let out = "";
+  let copied = 0;
+  let { start, end } = ranges[0];
+  for (let i = 1; i < ranges.length; i++) {
+    const next = ranges[i];
+    if (next.start < end) {
+      if (next.end > end) end = next.end;
+      continue;
+    }
+    out += text.slice(copied, start) + "[redacted]";
+    copied = end;
+    start = next.start;
+    end = next.end;
+  }
+  return out + text.slice(copied, start) + "[redacted]" + text.slice(end);
 }
 
 /** Build a request URL, adding teamId when configured. */

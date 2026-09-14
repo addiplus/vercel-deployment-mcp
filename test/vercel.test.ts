@@ -56,6 +56,55 @@ describe("credential values never appear in output", () => {
     expect(redactValues(s, [TOKEN])).not.toContain(TOKEN);
   });
 
+  // Two configured values can cross without either one containing the other. A scan that
+  // consumes non-overlapping matches takes the first and resumes past its end, which
+  // leaves the tail of the second in the text, so both list orders are pinned by exact
+  // output on every crossing shape.
+  it("redacts crossing configured values, in either list order", () => {
+    expect(redactValues("abcd", ["abc", "bcd"])).toBe("[redacted]");
+    expect(redactValues("abcd", ["bcd", "abc"])).toBe("[redacted]");
+    expect(redactValues("zabcdef", ["zab", "abcdef"])).toBe("[redacted]");
+    expect(redactValues("zabcdef", ["abcdef", "zab"])).toBe("[redacted]");
+    expect(redactValues("x abcd y", ["abc", "bcd"])).toBe("x [redacted] y");
+    expect(redactValues("x abcd y", ["bcd", "abc"])).toBe("x [redacted] y");
+  });
+
+  // A value can overlap its own repeats: "aaa" sits at three positions in "aaaaa", and
+  // only a scan that advances one character at a time finds the second and the third.
+  it("redacts a value that overlaps itself", () => {
+    expect(redactValues("aaaaa", ["aaa"])).toBe("[redacted]");
+  });
+
+  // Occurrences that only touch are still two occurrences, so they keep one marker each.
+  it("keeps adjacent repeats as separate markers", () => {
+    expect(redactValues("abcabc", ["abc"])).toBe("[redacted][redacted]");
+  });
+
+  it("ignores undefined and empty configured values", () => {
+    expect(redactValues("nothing here to hide", [undefined, ""])).toBe("nothing here to hide");
+    expect(redactValues(`saw ${TOKEN} here`, [undefined, "", TOKEN])).toBe("saw [redacted] here");
+  });
+
+  it("redacts a value listed twice, leaving a single marker", () => {
+    const out = redactValues(`saw ${TOKEN} here`, [TOKEN, TOKEN]);
+    expect(out).toBe("saw [redacted] here");
+    expect(out.match(/\[redacted\]/g)).toHaveLength(1);
+  });
+
+  // Bounds: a large body holding many occurrences of a realistic-length value, and a long
+  // run that one short value overlaps itself across, both resolve to exact output.
+  it("redacts many occurrences spread through a large text", () => {
+    const value = "v".repeat(40);
+    const filler = "-".repeat(20000);
+    const text = Array.from({ length: 50 }, () => filler + value).join("") + filler;
+    const expected = Array.from({ length: 50 }, () => filler + "[redacted]").join("") + filler;
+    expect(redactValues(text, [value])).toBe(expected);
+  });
+
+  it("collapses a long self-overlapping run into a single marker", () => {
+    expect(redactValues("a".repeat(20000), ["aaa"])).toBe("[redacted]");
+  });
+
   it("API error messages that echo the credential are scrubbed", () => {
     const cfg = { token: TOKEN };
     const err = new ApiError(400, "bad_request", `invalid token: ${TOKEN}`);
@@ -181,6 +230,19 @@ describe("formatTransportError", () => {
 
   it("redacts overlapping configured values when the token holds the longer one", () => {
     expectOverlapRedacted("abcdef", "abc");
+  });
+
+  // Crossing values, where neither one contains the other: "abc" and "bcd" both sit in
+  // "abcd", and the reported line must hold one marker and none of either value.
+  it("redacts crossing configured values on the transport path", () => {
+    const out = formatTransportError(new Error("denied abcd"), {
+      VERCEL_TOKEN: "abc",
+      VERCEL_TEAM_ID: "bcd",
+    } as NodeJS.ProcessEnv);
+    expect(out).toBe(`${TRANSPORT_ERROR_PREFIX}denied [redacted]`);
+    expect(out.match(/\[redacted\]/g)).toHaveLength(1);
+    expect(out).not.toContain("abcd");
+    expect(out).not.toContain("[redacted]d");
   });
 
   // A value that is a substring of "[redacted]" turns a replacement written for the
@@ -315,6 +377,30 @@ describe("size bounds", () => {
       expect((e as ApiError).message).not.toContain("team_secret_xyz9");
       return true;
     });
+  });
+
+  // Crossing values on the path that actually carries upstream text back to a client:
+  // "abc" and "bcd" both sit in "abcd" without either one containing the other.
+  it("scrubs crossing configured values at vercelGet and through formatToolError", async () => {
+    const token = "abc";
+    const teamId = "bcd";
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ error: { code: "forbidden", message: "denied abcd" } }), {
+        status: 403,
+      }),
+    );
+    let caught: unknown;
+    try {
+      await vercelGet({ token, teamId }, "/v9/projects", {}, fetchMock as unknown as typeof fetch);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(ApiError);
+    expect((caught as ApiError).message).toBe("denied [redacted]");
+    expect(formatToolError(caught, { token, teamId })).toBe(
+      "Vercel API error (HTTP 403, forbidden): denied [redacted]. Check that the configured " +
+        "credential is valid and has access to this project or team.",
+    );
   });
 });
 
