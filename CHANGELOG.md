@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- Redaction of the configured token and team id in error text replaced
+  the values one at a time. When the configured token was contained in
+  the configured team id, the token was replaced first and the remainder
+  of the team id survived in a tool result error message. The same
+  happened when the two values overlapped each other partially, or when
+  a value overlapped itself; a team id contained in the token was
+  removed whole. Every occurrence of every configured value is now
+  located in the original text, overlapping occurrences are joined, one
+  marker replaces each joined range, and replacement text is never
+  rescanned. This applied to every release so far.
+
 ## [0.2.0] - 2026-07-10
 
 ### Changed
@@ -60,5 +75,6 @@ Initial release.
 - Test suite covering the above (35 tests), run on Linux and Windows against
   Node 22 and 24 in CI.
 
+[Unreleased]: https://github.com/addiplus/vercel-deployment-mcp/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/addiplus/vercel-deployment-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/addiplus/vercel-deployment-mcp/releases/tag/v0.1.0
