@@ -14,8 +14,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   callback; the server now supplies one, which writes
   `vercel-deployment-mcp transport error: <message>`: a single line with
   whitespace collapsed, the configured token and team id replaced with
-  `[redacted]`, the message cut to 400 characters (so the line is at most
-  that plus its 39-character prefix), and never a stack or the error
+  `[redacted]`, the message cut to 400 characters (so an ordinary report is
+  at most that plus its 39-character prefix, 439 characters, and the line
+  that says a repeat is suppressed is 488, because its 49-character suffix
+  is appended after the bound), and never a stack or the error
   object. Commit `6b0b39e`, which moved stdio onto `serveStdio`, recorded
   this silence as a known gap in its own message; this closes it. stdout is
   unchanged, and the stderr contract's two files, `test/stdio-purity.test.ts`

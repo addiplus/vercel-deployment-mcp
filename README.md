@@ -176,7 +176,10 @@ code.
    `vercel-deployment-mcp transport error: <message>`: a single line, passed
    through the same redaction as tool errors and cut to its own 400-character
    bound on the message, tighter than the 500-character bound a tool error
-   takes (`src/vercel.ts`), never a stack and never the raw error object.
+   takes (`src/vercel.ts`), never a stack and never the raw error object. The
+   bound is on the message, so an ordinary report is 439 characters at its
+   widest; the line that says a repeat is suppressed appends its 49-character
+   suffix after the bound, which makes 488 the widest line this server writes.
 3. **Minimal footprint.** The tools are read-only observations of projects
    and deployments; the server requests nothing beyond what those reads need.
 4. **Stateless by design.** Configuration is re-read from the environment on

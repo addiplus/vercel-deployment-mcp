@@ -86,11 +86,15 @@ Eight files, run with vitest.
   just sent, in the form `vercel-deployment-mcp transport error: <message>`. Two lines are a
   property of that provoked refusal and not of the era: a 2026-07-28 session that provokes
   nothing gets the banner and nothing else. That line is one line, never a stack, its message capped
-  at 400 characters (the line is that plus its 39-character prefix), and passed through the same credential redaction the API client uses,
+  at 400 characters (the line is that plus its 39-character prefix, so 439), and passed through the same credential redaction the API client uses,
   which a second case in the file proves by claiming the configured token as a protocol
   revision and asserting the reporter writes `[redacted]`. That case asserts the other
   half of the same split too: the `-32022` frame on stdout carries the claimed string back
   to the client that sent it, unredacted, which is the carve-out `README.md` claim 1 names.
+  The 400-character bound is on the message alone, and the line that says a repeat is
+  suppressed appends its 49-character suffix after the bound has been applied, so the
+  widest line this server writes is 488 characters and not 439. A host sizing a log buffer
+  from the shorter number is short by that suffix.
 - `test/suite/`: four lenses on the same built server, all hand-written frames, no client
   library. `protocol.test.ts` pins protocol conformance on both eras, that the era is
   decided per connection, and the transport and handshake boundary: a claim-less tool
