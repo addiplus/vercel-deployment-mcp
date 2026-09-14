@@ -2,8 +2,11 @@
  * Vercel REST API client with strict configuration hygiene.
  *
  * Design principles (verified in test/):
- *  - Credential values are read only from the environment and never echoed:
- *    not in errors, not in logs, not in tool responses.
+ *  - Credential values are read only from the environment. Error text is
+ *    passed through the redaction guard once, where it becomes client
+ *    visible text, so an upstream error message cannot echo a configured
+ *    value back. A successful result is a fixed projection of the upstream
+ *    body and is not redacted.
  *  - stdout belongs to the MCP protocol; diagnostics go to stderr only.
  *  - Errors surfaced to the client are shaped and size-bounded.
  */
@@ -110,7 +113,8 @@ export function buildUrl(
   return url.toString();
 }
 
-const MAX_ERROR_LEN = 400;
+/** The one bound on client visible error text. Applied after redaction, never before. */
+const MAX_ERROR_LEN = 500;
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /** Politeness throttle applied to every outbound Vercel API request. */
@@ -298,8 +302,9 @@ export async function vercelGet<T>(
     } catch {
       /* non-JSON body, keep the generic message */
     }
-    const safe = redactValues(message, [config.token, config.teamId]).slice(0, MAX_ERROR_LEN);
-    throw new ApiError(res.status, code, safe);
+    // Redaction and the length bound belong at the boundary, in formatToolError,
+    // so the text is never cut before the values in it have been replaced.
+    throw new ApiError(res.status, code, message);
   }
 
   return (await res.json()) as T;
@@ -357,5 +362,5 @@ export function formatToolError(err: unknown, config?: VercelConfig): string {
   } else {
     msg = "Unexpected error.";
   }
-  return redactValues(msg, [config?.token, config?.teamId]).slice(0, MAX_ERROR_LEN + 100);
+  return redactValues(msg, [config?.token, config?.teamId]).slice(0, MAX_ERROR_LEN);
 }

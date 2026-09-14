@@ -17,8 +17,16 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   a value overlapped itself; a team id contained in the token was
   removed whole. Every occurrence of every configured value is now
   located in the original text, overlapping occurrences are joined, one
-  marker replaces each joined range, and replacement text is never
-  rescanned. This applied to every release so far.
+  marker replaces each joined range, and the replacement text is never
+  rescanned within a call. This applied to every release so far.
+
+- Error text is now redacted once, where it becomes client-visible text,
+  rather than once when the upstream message is read and again when the
+  tool result is composed. Redacting twice rewrote the marker itself
+  whenever a configured value was a substring of the word inside it, so a
+  tool result could show a marker that had been cut apart. Redaction also
+  runs before the 500-character bound is applied, so a configured value
+  that straddles the cut can no longer leave its first characters behind.
 
 ### Changed
 
