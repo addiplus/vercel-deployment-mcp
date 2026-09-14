@@ -74,12 +74,15 @@ surfaced as an error on the first attempt.
 | Largest accepted protocol frame | 10485760 bytes |
 | Highest accepted `VERCEL_MCP_MIN_INTERVAL_MS` | 60000 |
 
-A value above one of these limits is refused rather than trimmed: an over-long
-argument fails input validation, a frame above the frame limit is dropped with
-one line on stderr and the connection keeps serving, and an interval above the
-ceiling is reduced to the ceiling with one line on stderr. The same stderr
-report repeated back to back is written twice at most, the second time to say
-that further identical reports are suppressed.
+Each of these limits has its own behaviour above the value in the table. An
+over-long argument fails input validation: the call comes back as a JSON-RPC
+`-32602` invalid-params result, no Vercel API request is made, and nothing is
+written to stderr for it. A frame above the frame limit is dropped, one line on
+stderr says so, and the connection keeps serving. An interval above the ceiling
+is not refused, it is reduced to the ceiling: the server runs with the reduced
+value, and one line on stderr says so the first time it makes a Vercel API
+request. The same stderr report repeated back to back is written twice at most,
+the second time to say that further identical reports are suppressed.
 
 `initialize` and `ping` are answered at any time. `tools/list` and `tools/call`
 are answered only once the client has completed the initialization handshake:
