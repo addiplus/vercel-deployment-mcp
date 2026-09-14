@@ -85,6 +85,15 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   as an error. A timestamp of 0 is now reported as the epoch rather than
   dropped as missing.
 
+- An `updatedAt` or `createdAt` given as a number is read as milliseconds
+  since the epoch, and a number that reads as a date before the year 2000
+  is omitted rather than reported. A seconds-resolution number such as
+  1700000000 previously came back as a date in January 1970, stated as
+  confidently as a correct one; the field is now absent instead, which the
+  published output schema already allows. Zero still reports the epoch,
+  the one value both readings agree on, and a date delivered as text is
+  unaffected.
+
 ## [0.2.0] - 2026-07-10
 
 ### Changed

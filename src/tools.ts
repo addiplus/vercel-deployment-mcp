@@ -112,8 +112,17 @@ function isApplied(value: string | undefined): boolean {
   return value !== undefined && value !== "";
 }
 
-/** An upstream millisecond timestamp as ISO text, or undefined when it cannot be read. */
+// An upstream timestamp given as a number is milliseconds since the epoch, which
+// is what the Vercel API documents and returns. A number that reads as a date
+// before this point is not one: the usual cause is a seconds-resolution value,
+// which read as milliseconds names a date decades in the past. Reporting that
+// would be a wrong answer stated as confidently as a right one, so it is left
+// out instead. Zero is the one value both scales agree on and is kept.
+const EARLIEST_READABLE_MS = Date.UTC(2000, 0, 1);
+
+/** An upstream timestamp as ISO text, or undefined when it cannot be read. */
 function toIso(value: unknown): string | undefined {
+  if (typeof value === "number" && value !== 0 && value < EARLIEST_READABLE_MS) return undefined;
   const ms =
     typeof value === "number" || typeof value === "string" ? new Date(value).getTime() : Number.NaN;
   return Number.isFinite(ms) ? new Date(ms).toISOString() : undefined;

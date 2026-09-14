@@ -685,6 +685,31 @@ describe("upstream timestamps", () => {
     expect(parsed.items[0].updatedAt).toBe("1970-01-01T00:00:00.000Z");
   });
 
+  it("omits a seconds-resolution timestamp rather than reporting a date decades off", async () => {
+    vi.stubGlobal("fetch", listOf([{ id: "prj_1", name: "demo", updatedAt: 1700000000 }]));
+    const result = await getTools().get("list_projects")!.handler({});
+    expect(result.isError).not.toBe(true);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.items[0].updatedAt).toBeUndefined();
+    expect(parsed.items[0].id).toBe("prj_1");
+  });
+
+  it("still reads a date delivered as text from before the numeric floor", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({ uid: "dpl_1", name: "app", createdAt: "1999-05-04T03:02:01.000Z" }),
+          { status: 200 },
+        ),
+      ),
+    );
+    const result = await getTools().get("get_deployment")!.handler({ idOrUrl: "dpl_1" });
+    expect(result.isError).not.toBe(true);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.item.createdAt).toBe("1999-05-04T03:02:01.000Z");
+  });
+
   it("omits a timestamp delivered as a string or out of range, without failing the call", async () => {
     for (const value of ["1700000000000", 8.64e15 + 1]) {
       vi.stubGlobal(

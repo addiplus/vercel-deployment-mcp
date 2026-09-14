@@ -39,7 +39,10 @@ Four files, run with vitest.
   `state`, `idOrName` and `idOrUrl` at 512, with the bound published in the input schema);
   an identifier made only of dots is refused, and every accepted identifier leaves exactly
   one path segment under the tool's endpoint; an unreadable timestamp is omitted from that
-  one item instead of failing the page, and a timestamp of 0 is reported as the epoch; and
+  one item instead of failing the page, a timestamp of 0 is reported as the epoch, a numeric
+  timestamp that reads as a date before the year 2000 (a seconds-resolution value, say) is
+  omitted rather than reported while a date delivered as text from before that point is still
+  read; and
   a 2xx body where `data.projects` or `data.deployments` is present but not an array is
   rejected before it reaches the response mapping, as `isError: true`.
 - `test/stdio-purity.test.ts`: the built server as a black box. Spawns `dist/index.js`
