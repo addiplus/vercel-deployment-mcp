@@ -66,6 +66,37 @@ function buildPreload(): string {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const FRAME_INTAKE_BUDGET_MS = 20_000;
+
+/**
+ * Write one frame of `megabytes` with no newline anywhere in it, a chunk at a
+ * time so nothing piles up on this side, and give up with a readable message if
+ * the server falls behind instead of dropping what is over the limit.
+ */
+async function writeUnterminatedFrame(server: TestServer, megabytes: number): Promise<void> {
+  const chunk = "x".repeat(1024 * 1024);
+  const deadline = Date.now() + FRAME_INTAKE_BUDGET_MS;
+  for (let written = 0; written < megabytes; written++) {
+    if (server.child.stdin.write(chunk)) continue;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `the server was still taking in one frame after ` +
+                `${FRAME_INTAKE_BUDGET_MS} ms, ${written} MB in`,
+            ),
+          ),
+        Math.max(0, deadline - Date.now()),
+      );
+      server.child.stdin.once("drain", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+}
+
 async function waitFor(
   predicate: () => boolean,
   timeoutMs: number,
@@ -218,8 +249,13 @@ describe("transport failures", () => {
       const server = await startServer();
       try {
         await server.initialize();
-        const megabyte = "x".repeat(1024 * 1024);
-        for (let i = 0; i < 12; i++) server.child.stdin.write(megabyte);
+        // Well past the limit, in one unterminated frame, then the newline that
+        // ends it and an ordinary request. The volume is the point: reporting
+        // the drop is not enough, the oversized bytes must never reach the
+        // stream the transport reads. A transport pointed at the raw input
+        // instead buffers all of this and joins it chunk by chunk, so the
+        // request after the newline arrives far too late to be answered here.
+        await writeUnterminatedFrame(server, 128);
         server.child.stdin.write("\n");
         const ping = await server.rpc(20, "ping");
         expect(ping.result).toBeDefined();
@@ -235,7 +271,7 @@ describe("transport failures", () => {
         server.stop();
       }
     },
-    20_000,
+    30_000,
   );
 
   it(

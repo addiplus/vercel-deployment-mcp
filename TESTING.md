@@ -73,10 +73,12 @@ Four files, run with vitest.
   the whole handshake, `initialize` request included, with each response carrying its own
   request's id and the handshake answered first; closing the
   host's read end of stdout produces one transport error line on stderr and exit status 0,
-  with no Node stack and no installation paths; a frame above the 10485760-byte limit is
-  dropped with exactly one stderr line naming the limit, and the next request is answered
-  normally; and three oversized frames in a row produce two lines rather than three, the
-  second saying that further identical reports are suppressed.
+  with no Node stack and no installation paths; one 128 MB frame with no newline in it,
+  written no faster than the server takes it in, is dropped with exactly one stderr line
+  naming the 10485760-byte limit, and the request after the newline that ends that frame is
+  answered normally, which is what ties the limit to the stream the transport reads rather
+  than to the stderr line alone; and three oversized frames in a row produce two lines
+  rather than three, the second saying that further identical reports are suppressed.
 
 ## Beyond the suite
 
@@ -87,7 +89,8 @@ Four files, run with vitest.
   missing required argument, and a call with no configuration at all.
 - End-to-end against the live Vercel API from a real stdio client: all four tools return
   correct live data; diagnostics stay on stderr.
-- Memory check, run by hand rather than in the suite because the reading is not portable:
+- Memory check, run by hand rather than in the suite because only the reading is not
+  portable; the effect of the limit on what the transport receives is in the suite:
   write 256 MB to stdin with no newline and watch resident memory rise over the first
   hundred megabytes or so and then stop, well short of tracking the input, while one line on
   stderr reports the dropped frame. A sample run here went from 85 MB before the write to
