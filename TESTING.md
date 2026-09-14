@@ -12,7 +12,8 @@ Eight files, run with vitest.
   upstream message long enough that a configured value straddles the cut), error shaping and
   the single 500-char bound on client-visible error text, which is applied to the shaped
   message before the fixed hint is appended so a long upstream message cannot push the hint
-  out, rate-limit and auth hints,
+  out, alongside the tighter 400-character bound a transport diagnostic's message takes,
+  rate-limit and auth hints,
   network failures, the 30-second request timeout, non-JSON error bodies,
   the hardcoded fallback for non-Error throws, the request throttle (minimum start-to-start
   spacing and the concurrency cap, both driven by an injected fake clock/sleep, no
@@ -90,11 +91,12 @@ Eight files, run with vitest.
   revision and asserting the reporter writes `[redacted]`.
 - `test/suite/`: four lenses on the same built server, all hand-written frames, no client
   library. `protocol.test.ts` pins protocol conformance on both eras, that the era is
-  decided per connection, and the transport and handshake boundary: a tool request sent
-  before the initialization handshake completes is refused with JSON-RPC `-32600` and no
-  upstream request is made for it, while `ping` is answered throughout and the same calls
-  succeed once the handshake is done; a tool request whose only predecessor is an
-  `initialized` notification that no `initialize` request came before is refused the same
+  decided per connection, and the transport and handshake boundary: a claim-less tool
+  request sent before the initialization handshake completes is refused with JSON-RPC
+  `-32600` and no upstream request is made for it, while a request claiming revision
+  `2026-07-28` is answered without any handshake at all; `ping` is answered throughout and
+  the same calls succeed once the handshake is done; a tool request whose only predecessor
+  is an `initialized` notification that no `initialize` request came before is refused the same
   way, with no upstream request, and the handshake still completes normally afterwards; a
   tool request whose handshake rests on an `initialize` the server rejected is refused the
   same way, so only a request the server can answer counts as the first half; a request
@@ -110,8 +112,10 @@ Eight files, run with vitest.
   10485760 bytes, the newline that ends its frame not counted, is answered with nothing
   written to stderr while the same message one byte longer is dropped and the request after
   it is still answered, which pins the limit to the message rather than to the message plus
-  its delimiter; and three oversized frames in a row produce two lines rather than three,
-  the second saying that further identical reports are suppressed.
+  its delimiter; three oversized frames in a row produce two lines rather than three, the
+  second saying that further identical reports are suppressed; and five hundred malformed
+  frames of alternating shape produce one hundred and one lines, the last of which says
+  that further reports are suppressed.
   `contracts.test.ts` pins what the published input and output
   schemas promise and whether the structured content keeps that promise; `upstream.test.ts`
   pins upstream failure modes and credential safety; `invariants.test.ts` pins what must

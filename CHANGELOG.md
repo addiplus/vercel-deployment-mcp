@@ -101,6 +101,14 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   it is answered without an `initialize` and the 2026-07-28 era is
   unchanged. `initialize` and `ping` are answered at any time, as before.
 
+- Documentation: `README.md` records the bound on how many transport
+  reports one process writes, states that the handshake requirement
+  applies only to a request claiming no protocol revision, and describes
+  an over-long argument the way this line answers it, as a tool result
+  carrying `isError: true` rather than as a JSON-RPC `-32602` frame.
+  `TESTING.md` counts the eight test files of this line and describes the
+  transport and handshake cases.
+
 ### Fixed
 
 - `initialize` reported `serverInfo.version` as `0.1.0` while the package

@@ -82,30 +82,37 @@ surfaced as an error on the first attempt.
 | Longest `projectId`, `state`, `idOrName`, `idOrUrl` value | 512 characters |
 | Largest accepted protocol frame | 10485760 bytes |
 | Highest accepted `VERCEL_MCP_MIN_INTERVAL_MS` | 60000 |
+| Most transport reports written to stderr | 100 |
 
 The frame limit counts the message and not the newline that delimits it, so a
 message of exactly 10485760 bytes is accepted. Everything before that newline is
 the message, a carriage return sitting just in front of it included.
 
 Each of these limits has its own behaviour above the value in the table. An
-over-long argument fails input validation: the call comes back as a JSON-RPC
-`-32602` invalid-params result, no Vercel API request is made, and nothing is
-written to stderr for it. A frame above the frame limit is dropped, one line on
-stderr says so, and the connection keeps serving. An interval above the ceiling
-is not refused, it is reduced to the ceiling: the server runs with the reduced
-value, and one line on stderr says so the first time it makes a Vercel API
-request. The same stderr report repeated back to back is written twice at most,
-the second time to say that further identical reports are suppressed.
+over-long argument fails input validation: the call comes back as a tool result
+carrying `isError: true` whose text reports the validation failure, no Vercel
+API request is made, and nothing is written to stderr for it. A frame above the
+frame limit is dropped, one line on stderr says so, and the connection keeps
+serving. An interval above the ceiling is not refused, it is reduced to the
+ceiling: the server runs with the reduced value, and one line on stderr says so
+the first time it makes a Vercel API request. The same stderr report repeated
+back to back is written twice at most, the second time to say that further
+identical reports are suppressed. Across the life of one process at most one
+hundred reports are written in total; the line that would follow the hundredth
+says that further reports are suppressed, and nothing is written after it.
 
 `initialize` and `ping` are answered at any time. `tools/list` and `tools/call`
 are answered only once the client has completed the initialization handshake:
 an `initialize` request the server can answer, followed by
 `notifications/initialized`. Both halves are required, so the notification on
 its own completes nothing, and neither does an `initialize` the server rejects.
-A client that writes both halves and its first call in a single write is
-served, rather than being refused for not waiting for the initialize response. Before the
-handshake, those two methods are refused with JSON-RPC error `-32600` and no
-Vercel API request is made.
+This applies to a request that claims no protocol revision, which is every
+2025-era request. A request that claims revision `2026-07-28` in its
+`params._meta` envelope negotiates on the request itself and is answered
+without an `initialize`. A client that writes both halves and its first call in
+a single write is served, rather than being refused for not waiting for the
+initialize response. Before the handshake, those two methods are refused with
+JSON-RPC error `-32600` and no Vercel API request is made.
 
 Example client configuration (Claude Desktop / Claude Code):
 
