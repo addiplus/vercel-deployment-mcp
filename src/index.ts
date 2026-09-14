@@ -9,6 +9,7 @@
 import { PassThrough } from "node:stream";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { registerTools } from "./tools.js";
 import { getConfig, redactValues, type VercelConfig } from "./vercel.js";
 
@@ -53,6 +54,16 @@ process.stdout.on("error", (err: Error) => {
   process.exit(0);
 });
 
+// Requests that are legal before the handshake finishes. Everything else waits.
+const OPEN_BEFORE_INITIALIZE = new Set(["initialize", "ping"]);
+const INITIALIZED_NOTIFICATION = "notifications/initialized";
+const PRE_INITIALIZE_MESSAGE = "Received a request before initialization completed.";
+
+let initialized = false;
+server.server.oninitialized = () => {
+  initialized = true;
+};
+
 const MAX_FRAME_BYTES = 10 * 1024 * 1024;
 
 // Only whole lines reach the transport, and a line longer than the limit is
@@ -92,4 +103,28 @@ process.stdin.on("error", (err: Error) => reportTransportError(err));
 
 const transport = new StdioServerTransport(framed, process.stdout);
 await server.connect(transport);
+
+// connect() installs the dispatcher on the transport. Wrap it so a request that
+// arrives before the handshake finishes is answered rather than executed.
+const dispatch = transport.onmessage;
+transport.onmessage = (message) => {
+  const frame = message as { method?: unknown; id?: unknown };
+  const isRequest =
+    typeof frame.method === "string" && frame.id !== undefined && frame.id !== null;
+  // Initialization ends as this notification goes past, rather than a turn
+  // later when its handler runs, so a client that puts its first request in the
+  // same write as the notification is not refused.
+  if (!isRequest && frame.method === INITIALIZED_NOTIFICATION) initialized = true;
+  if (isRequest && !initialized && !OPEN_BEFORE_INITIALIZE.has(frame.method as string)) {
+    const refusal: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      id: frame.id as string | number,
+      error: { code: -32600, message: PRE_INITIALIZE_MESSAGE },
+    };
+    void transport.send(refusal);
+    return;
+  }
+  dispatch?.(message);
+};
+
 console.error("vercel-deployment-mcp ready (stdio)");

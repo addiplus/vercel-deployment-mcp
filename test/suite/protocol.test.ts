@@ -35,6 +35,7 @@ interface TestServer {
   child: ChildProcessWithoutNullStreams;
   send(message: unknown): void;
   rpc(id: number, method: string, params?: unknown): Promise<RpcFrame>;
+  waitForFrame(id: number, timeoutMs?: number): Promise<RpcFrame>;
   initialize(): Promise<void>;
   waitForExit(timeoutMs: number): Promise<Exit>;
   stderr(): string;
@@ -130,10 +131,13 @@ async function startServer(extraEnv: Record<string, string> = {}): Promise<TestS
       server.send(params === undefined
         ? { jsonrpc: "2.0", id, method }
         : { jsonrpc: "2.0", id, method, params });
+      return server.waitForFrame(id);
+    },
+    async waitForFrame(id: number, timeoutMs = 10_000) {
       await waitFor(
         () => frames.has(id),
-        10_000,
-        () => `no response to ${method} (id ${id}); stderr so far: ${stderrBuffer}`,
+        timeoutMs,
+        () => `no response to id ${id}; stderr so far: ${stderrBuffer}`,
       );
       return frames.get(id)!;
     },
@@ -219,6 +223,73 @@ describe("transport failures", () => {
         expect(reported[0]).toContain("vercel-deployment-mcp transport error: ");
         expect(reported[0]).toContain("10485760");
         expect(server.child.exitCode).toBeNull();
+      } finally {
+        server.stop();
+      }
+    },
+    20_000,
+  );
+});
+
+describe("the initialization handshake", () => {
+  it(
+    "refuses tool requests until the handshake completes, and makes no upstream request",
+    async () => {
+      const server = await startServer();
+      try {
+        const pingBefore = await server.rpc(1, "ping");
+        expect(pingBefore.result).toBeDefined();
+
+        const listBefore = await server.rpc(2, "tools/list");
+        expect(listBefore.error?.code).toBe(-32600);
+        expect(listBefore.result).toBeUndefined();
+
+        const callBefore = await server.rpc(3, "tools/call", {
+          name: "get_project",
+          arguments: { idOrName: "before_handshake" },
+        });
+        expect(callBefore.error?.code).toBe(-32600);
+        expect(server.requests()).toHaveLength(0);
+
+        await server.initialize();
+        const listAfter = await server.rpc(4, "tools/list");
+        expect(listAfter.result?.tools).toHaveLength(4);
+        const callAfter = await server.rpc(5, "tools/call", {
+          name: "get_project",
+          arguments: { idOrName: "after_handshake" },
+        });
+        expect(callAfter.result?.isError).not.toBe(true);
+        expect(server.requests()).toHaveLength(1);
+        expect(server.requests()[0]).toContain("after_handshake");
+      } finally {
+        server.stop();
+      }
+    },
+    20_000,
+  );
+
+  it(
+    "serves a request written in the same chunk as the initialized notification",
+    async () => {
+      const server = await startServer();
+      try {
+        const framed = await server.rpc(1, "initialize", {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "protocol-suite", version: "0.0.0" },
+        });
+        expect(framed.result).toBeDefined();
+        // One write carrying the notification and the next request, which is what
+        // a client that does not wait between the two sends.
+        server.child.stdin.write(
+          JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) +
+            "\n" +
+            JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }) +
+            "\n",
+        );
+        const pipelined = await server.waitForFrame(2);
+        expect(pipelined.error).toBeUndefined();
+        expect(pipelined.result?.tools).toHaveLength(4);
       } finally {
         server.stop();
       }
