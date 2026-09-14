@@ -312,3 +312,39 @@ export function formatToolError(err: unknown, config?: VercelConfig): string {
   }
   return redactValues(msg, [config?.token, config?.teamId]).slice(0, MAX_ERROR_LEN + 100);
 }
+
+/**
+ * The fixed prefix on every transport diagnostic. Stable text, because a host
+ * that greps stderr greps for this.
+ */
+export const TRANSPORT_ERROR_PREFIX = "vercel-deployment-mcp transport error: ";
+
+/**
+ * One line of stderr for an out-of-band transport error.
+ *
+ * The transport hands this callback anything: an Error, an Error subclass with
+ * vendor prose, or (through `toError`) a String() of a non-Error throw. The
+ * message can carry client-supplied text, so it is redacted against the
+ * configured credentials read from the environment at call time, collapsed to a
+ * single line, and cut to MAX_ERROR_LEN. Never throws, for any input: a
+ * diagnostic path that can throw is worse than no diagnostic path.
+ *
+ * The environment is read directly rather than through getConfig(), because
+ * getConfig() throws a ConfigError when VERCEL_TOKEN is unset and a reporter
+ * must still report on a server that was started with no configuration.
+ */
+export function formatTransportError(
+  err: unknown,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  let raw: string;
+  try {
+    raw = err instanceof Error ? err.message : String(err);
+  } catch {
+    raw = "";
+  }
+  if (typeof raw !== "string") raw = "";
+  const oneLine = raw.replace(/\s+/g, " ").trim();
+  const safe = redactValues(oneLine, [env.VERCEL_TOKEN?.trim(), env.VERCEL_TEAM_ID?.trim()]);
+  return TRANSPORT_ERROR_PREFIX + (safe.slice(0, MAX_ERROR_LEN) || "unknown transport error");
+}

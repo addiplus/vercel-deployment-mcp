@@ -294,7 +294,12 @@ describe("stdio purity", () => {
         expect(invalidText).not.toMatch(/-\d{5}\b/);
 
         for (const line of stdoutLines) expect(JSON.parse(line).jsonrpc).toBe("2.0");
-        expect(stderrBuffer).toContain("vercel-deployment-mcp ready (stdio)");
+        // Exact, not toContain: the onerror reporter added in this card writes to stderr, and a
+        // substring assertion would not notice a reporter line appearing on a path that should be
+        // quiet. Every 2025-era path this test drives is quiet, measured.
+        expect(stderrBuffer).toBe("vercel-deployment-mcp ready (stdio)\n");
+        expect(stderrBuffer).not.toMatch(new RegExp(`${token}|${teamId}`));
+        for (const line of stdoutLines) expect(line).not.toMatch(new RegExp(`${token}|${teamId}`));
         expect(stdoutLines.some((line) => line.includes("ready (stdio)"))).toBe(false);
       } finally {
         child.kill();

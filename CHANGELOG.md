@@ -7,6 +7,19 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- Transport-level errors are now reported on stderr as one redacted line.
+  `serveStdio` surfaces out-of-band failures through an optional `onerror`
+  callback; the server now supplies one, which writes
+  `vercel-deployment-mcp transport error: <message>`: a single line with
+  whitespace collapsed, the configured token and team id replaced with
+  `[redacted]`, cut to 400 characters, and never a stack or the error
+  object. Commit `6b0b39e`, which moved stdio onto `serveStdio`, recorded
+  this silence as a known gap in its own message; this closes it. stdout is
+  unchanged, and both black-box tests now assert the whole of stderr rather
+  than a substring, so a diagnostic appearing on a quiet path fails the suite.
+
 ### Changed
 
 - **Breaking:** `engines.node` moves from `>=18` to `>=20`. The

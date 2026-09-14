@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ApiError,
   ConfigError,
+  TRANSPORT_ERROR_PREFIX,
   Throttle,
   assertArrayField,
   assertDeploymentShape,
   assertProjectShape,
   buildUrl,
   formatToolError,
+  formatTransportError,
   getConfig,
   redactValues,
   resolveThrottleOptions,
@@ -72,6 +74,66 @@ describe("credential values never appear in output", () => {
     const out = formatToolError(new ApiError(401, "forbidden", "Not authorized"), { token: TOKEN });
     expect(out).toContain("credential");
     expect(out).not.toContain(TOKEN);
+  });
+});
+
+describe("formatTransportError", () => {
+  const ENV = { VERCEL_TOKEN: TOKEN, VERCEL_TEAM_ID: "team_secret_xyz9" } as NodeJS.ProcessEnv;
+
+  it("redacts the configured token and team id out of the message", () => {
+    const out = formatTransportError(
+      new Error(`transport blew up on ${TOKEN} for team_secret_xyz9`),
+      ENV,
+    );
+    expect(out).toBe(
+      `${TRANSPORT_ERROR_PREFIX}transport blew up on [redacted] for [redacted]`,
+    );
+    expect(out).not.toContain(TOKEN);
+    expect(out).not.toContain("team_secret_xyz9");
+  });
+
+  it("reads the environment at call time, and trims it the way getConfig does", () => {
+    const message = new Error(`boom ${TOKEN}`);
+    expect(formatTransportError(message, {})).toContain(TOKEN);
+    expect(formatTransportError(message, { VERCEL_TOKEN: ` ${TOKEN} ` })).toBe(
+      `${TRANSPORT_ERROR_PREFIX}boom [redacted]`,
+    );
+  });
+
+  it("collapses every kind of whitespace to one line", () => {
+    const out = formatTransportError(new Error("line one\nline two\r\n\tline three"), ENV);
+    expect(out).toBe(`${TRANSPORT_ERROR_PREFIX}line one line two line three`);
+    expect(out).not.toMatch(/[\r\n\t]/);
+  });
+
+  it("never throws, whatever the transport hands it", () => {
+    const hostile: unknown[] = [
+      undefined,
+      null,
+      42,
+      "a raw string throw",
+      { a: 1 },
+      Symbol("s"),
+      { toString() { throw new Error("nope"); } },
+      new Error(""),
+      new Error("   \n  "),
+      Object.assign(new Error("x"), { message: 7 }),
+    ];
+    for (const input of hostile) {
+      let out = "";
+      expect(() => { out = formatTransportError(input, ENV); }).not.toThrow();
+      expect(out.startsWith(TRANSPORT_ERROR_PREFIX)).toBe(true);
+      expect(out).not.toMatch(/[\r\n]/);
+    }
+    expect(formatTransportError(new Error(""), ENV)).toBe(
+      `${TRANSPORT_ERROR_PREFIX}unknown transport error`,
+    );
+  });
+
+  it("caps the line at the same 400 characters the API client uses", () => {
+    const out = formatTransportError(new Error("x".repeat(900)), ENV);
+    expect(out).toHaveLength(TRANSPORT_ERROR_PREFIX.length + 400);
+    expect(out.endsWith("x")).toBe(true);
   });
 });
 

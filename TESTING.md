@@ -47,9 +47,12 @@ Eight files, run with vitest.
   comes back as `isError: true` with no `structuredContent`; a call missing a required
   argument comes back as a tool result and not as a JSON-RPC error frame: no top-level
   `error` member, `isError: true`, and text that reports an argument validation failure
-  and names the missing field `idOrName`; every stdout line is a JSON-RPC frame; the
-  startup banner goes to stderr and never to stdout; and no tool-call response frame (the
-  successful calls and the 403 error) contains the configured token or team id.
+  and names the missing field `idOrName`; every stdout line is a JSON-RPC frame; and no
+  tool-call response frame (the successful calls and the 403 error) contains the configured
+  token or team id. The stderr contract is asserted exactly, not by substring: on a 2025-era
+  session the server's entire stderr output is the single line
+  `vercel-deployment-mcp ready (stdio)`, so a diagnostic that appears on a path that should
+  be quiet fails the test rather than passing unnoticed.
   The session is opened as a 2025-06-18 client, which is the era `serveStdio` pins for
   any opening `initialize`.
 - `test/stdio-era.test.ts`: the same built server as a black box on the other protocol
@@ -64,7 +67,12 @@ Eight files, run with vitest.
   `initialize` sent on the pinned connection is then refused with `-32022` carrying
   `data.supported` of `["2026-07-28"]`, which is the frame the pre-`serveStdio` wiring
   could not produce; every stdout line is a JSON-RPC frame; and the startup banner goes to
-  stderr and never to stdout.
+  stderr and never to stdout. stderr is asserted exactly here too, and on this era it is two
+  lines: the banner, then one transport-error line reporting the refusal the server just
+  sent, in the form `vercel-deployment-mcp transport error: <message>`. That line is one
+  line, never a stack, capped at 400 characters, and passed through the same credential
+  redaction the API client uses, which a second case in the file proves by claiming the
+  configured token as a protocol revision and asserting the reporter writes `[redacted]`.
 - `test/suite/`: four lenses on the same built server, all hand-written frames, no client
   library. `protocol.test.ts` pins protocol conformance on both eras and that the era is
   decided per connection; `contracts.test.ts` pins what the published input and output
