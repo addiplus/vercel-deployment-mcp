@@ -106,8 +106,9 @@ code.
    carries a readiness banner and, when the transport reports an out-of-band
    failure, one line per failure in the form
    `vercel-deployment-mcp transport error: <message>`: a single line, passed
-   through the same redaction as tool errors and cut to the same length
-   (`src/vercel.ts`), never a stack and never the raw error object.
+   through the same redaction as tool errors and cut to its own 400-character
+   bound on the message, tighter than the 500-character bound a tool error
+   takes (`src/vercel.ts`), never a stack and never the raw error object.
 3. **Minimal footprint.** The tools are read-only observations of projects
    and deployments; the server requests nothing beyond what those reads need.
 4. **Stateless by design.** Configuration is re-read from the environment on
