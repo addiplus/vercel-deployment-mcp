@@ -176,7 +176,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   which reads to a supervisor as an intentional shutdown. The transport's own
   buffer limit is set to the stated message limit plus the one byte its
   delimiter takes, so the two agree and a message of exactly the stated size
-  is served.
+  is served. A transport close that still happens while stdin is open leaves
+  status 70 behind rather than 0, which covers a close the message limit does
+  not prevent. With that limit in place a peer cannot provoke one, since the
+  reader hands the transport no more than its buffer holds, so an ordinary
+  session still ends with status 0 and no case in the suite reaches 70.
 
 - There is now a bound on how many lines a transport failure can write to
   stderr. A report repeated back to back is written twice at most, as
