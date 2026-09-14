@@ -20,6 +20,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   marker replaces each joined range, and replacement text is never
   rescanned. This applied to every release so far.
 
+### Changed
+
+- A protocol frame larger than 10485760 bytes is dropped, one line on
+  stderr says so, and the connection keeps serving. There was no limit at
+  all before, so a peer that never sent a newline grew the process without
+  bound and stalled its own next request.
+
 ### Fixed
 
 - A closed stdout no longer crashes the server. The write error is

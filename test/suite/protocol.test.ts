@@ -199,4 +199,30 @@ describe("transport failures", () => {
     },
     20_000,
   );
+
+  it(
+    "drops a frame larger than the stated limit, reports it once, and keeps serving",
+    async () => {
+      const server = await startServer();
+      try {
+        await server.initialize();
+        const megabyte = "x".repeat(1024 * 1024);
+        for (let i = 0; i < 12; i++) server.child.stdin.write(megabyte);
+        server.child.stdin.write("\n");
+        const ping = await server.rpc(20, "ping");
+        expect(ping.result).toBeDefined();
+        const reported = server
+          .stderr()
+          .split("\n")
+          .filter((line) => line.includes("stdin frame exceeded"));
+        expect(reported).toHaveLength(1);
+        expect(reported[0]).toContain("vercel-deployment-mcp transport error: ");
+        expect(reported[0]).toContain("10485760");
+        expect(server.child.exitCode).toBeNull();
+      } finally {
+        server.stop();
+      }
+    },
+    20_000,
+  );
 });
