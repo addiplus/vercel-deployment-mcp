@@ -19,6 +19,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   this silence as a known gap in its own message; this closes it. stdout is
   unchanged, and both black-box tests now assert the whole of stderr rather
   than a substring, so a diagnostic appearing on a quiet path fails the suite.
+- CI now runs the build, the test suite and the packed-consumer smoke on
+  Node 20 as well as 22 and 24, in both matrices. `engines.node` has said
+  `>=20` since the 2.0 SDK line landed; until now nothing exercised the
+  floor it declares, so the floor was a claim rather than a result.
 
 ### Changed
 

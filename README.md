@@ -56,9 +56,10 @@ npm run build
 npm test
 ```
 
-Building and testing this repo requires Node 22+ (CI runs 22 and 24); the
-published package runs on Node >=20 per `engines`, the floor set by the
-`@modelcontextprotocol/server` 2.0 line.
+Building and testing this repo requires Node 20 or newer, the same floor the
+published package declares in `engines` (`>=20`) and the floor set by the
+`@modelcontextprotocol/server` 2.0 line. CI runs the build, the suite and the
+packed-consumer smoke on Node 20, 22 and 24.
 
 ## Configuration
 

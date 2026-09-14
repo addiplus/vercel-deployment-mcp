@@ -90,7 +90,9 @@ Eight files, run with vitest.
   missing required argument, and a call with no configuration at all.
 - End-to-end against the live Vercel API from a real stdio client: all four tools return
   correct live data; diagnostics stay on stderr.
-- CI runs build + tests on ubuntu-latest and windows-latest with Node 22 and 24.
+- CI runs build + tests on ubuntu-latest and windows-latest with Node 20, 22 and 24, and
+  the packed-consumer smoke on ubuntu-latest with the same three versions. Node 20 is the
+  floor `engines.node` declares, so the declared floor is a tested one.
 
 ## Notes
 
