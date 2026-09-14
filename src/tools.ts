@@ -112,6 +112,13 @@ function isApplied(value: string | undefined): boolean {
   return value !== undefined && value !== "";
 }
 
+/** An upstream millisecond timestamp as ISO text, or undefined when it cannot be read. */
+function toIso(value: unknown): string | undefined {
+  const ms =
+    typeof value === "number" || typeof value === "string" ? new Date(value).getTime() : Number.NaN;
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : undefined;
+}
+
 function asError(err: unknown) {
   let cfg;
   try {
@@ -176,7 +183,7 @@ export function registerTools(server: McpServer): void {
           id: p.id,
           name: p.name,
           framework: p.framework ?? null,
-          updatedAt: p.updatedAt ? new Date(p.updatedAt).toISOString() : undefined,
+          updatedAt: toIso(p.updatedAt),
         }));
         return asStructured({
           pageCount: projects.length,
@@ -218,7 +225,7 @@ export function registerTools(server: McpServer): void {
             id: p.id,
             name: p.name,
             framework: p.framework ?? null,
-            updatedAt: p.updatedAt ? new Date(p.updatedAt).toISOString() : undefined,
+            updatedAt: toIso(p.updatedAt),
           },
           receipt: receipt(config, []),
         });
@@ -274,7 +281,7 @@ export function registerTools(server: McpServer): void {
             url: d.url,
             state: d.state ?? d.readyState,
             target: d.target ?? null,
-            createdAt: d.createdAt ? new Date(d.createdAt).toISOString() : undefined,
+            createdAt: toIso(d.createdAt),
           };
         });
         return asStructured({
@@ -324,7 +331,7 @@ export function registerTools(server: McpServer): void {
             url: d.url,
             state: d.state ?? d.readyState,
             target: d.target ?? null,
-            createdAt: d.createdAt ? new Date(d.createdAt).toISOString() : undefined,
+            createdAt: toIso(d.createdAt),
           },
           receipt: receipt(config, []),
         });

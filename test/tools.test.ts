@@ -656,3 +656,50 @@ describe("unexpected 2xx response shapes", () => {
     expect(JSON.parse(result.content[0].text)).toEqual(result.structuredContent);
   });
 });
+
+describe("upstream timestamps", () => {
+  const listOf = (rows: unknown[]) =>
+    vi.fn(async () => new Response(JSON.stringify({ projects: rows }), { status: 200 }));
+
+  it("keeps the rest of the page when one row's timestamp cannot be read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      listOf([
+        { id: "prj_1", name: "good", updatedAt: 1700000000000 },
+        { id: "prj_2", name: "bad", updatedAt: "nope" },
+      ]),
+    );
+    const result = await getTools().get("list_projects")!.handler({});
+    expect(result.isError).not.toBe(true);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.pageCount).toBe(2);
+    expect(parsed.items[0].updatedAt).toBe("2023-11-14T22:13:20.000Z");
+    expect(parsed.items[1].updatedAt).toBeUndefined();
+    expect(parsed.items[1].id).toBe("prj_2");
+  });
+
+  it("reports a timestamp of zero as the epoch instead of dropping it", async () => {
+    vi.stubGlobal("fetch", listOf([{ id: "prj_1", name: "demo", updatedAt: 0 }]));
+    const result = await getTools().get("list_projects")!.handler({});
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.items[0].updatedAt).toBe("1970-01-01T00:00:00.000Z");
+  });
+
+  it("omits a timestamp delivered as a string or out of range, without failing the call", async () => {
+    for (const value of ["1700000000000", 8.64e15 + 1]) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          new Response(JSON.stringify({ uid: "dpl_1", name: "app", createdAt: value }), {
+            status: 200,
+          }),
+        ),
+      );
+      const result = await getTools().get("get_deployment")!.handler({ idOrUrl: "dpl_1" });
+      expect(result.isError, String(value)).not.toBe(true);
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.item.createdAt, String(value)).toBeUndefined();
+      expect(parsed.item.id, String(value)).toBe("dpl_1");
+    }
+  });
+});

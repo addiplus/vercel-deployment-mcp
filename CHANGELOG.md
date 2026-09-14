@@ -53,6 +53,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   segment, so the request went to a different endpoint while the result's
   receipt still reported the documented one.
 
+- A timestamp the server cannot read no longer fails the whole page. An
+  unreadable `updatedAt` or `createdAt` is omitted from that one item and
+  the rest of the page is returned, where the whole call previously ended
+  as an error. A timestamp of 0 is now reported as the epoch rather than
+  dropped as missing.
+
 ## [0.2.0] - 2026-07-10
 
 ### Changed
