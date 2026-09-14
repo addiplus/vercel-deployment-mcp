@@ -404,6 +404,28 @@ describe("size bounds", () => {
     expect(formatted.length).toBe(500);
     expect(formatted).not.toContain("STRADDLE");
   });
+
+  it("keeps the whole credential hint on an upstream message that fills the bound", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ error: { code: "forbidden", message: "M".repeat(600) } }), {
+        status: 403,
+      }),
+    );
+    let caught: unknown;
+    try {
+      await vercelGet({ token: TOKEN }, "/v9/projects", {}, fetchMock as unknown as typeof fetch);
+    } catch (e) {
+      caught = e;
+    }
+    const formatted = formatToolError(caught, { token: TOKEN });
+    expect(formatted.length).toBeLessThanOrEqual(500);
+    expect(formatted).toContain("MMMM");
+    // The cut text still ends as a sentence, so the hint reads as its own.
+    expect(formatted).toContain("M. Check that");
+    expect(formatted.endsWith(
+      " Check that the configured credential is valid and has access to this project or team.",
+    )).toBe(true);
+  });
 });
 
 describe("additional failure paths", () => {

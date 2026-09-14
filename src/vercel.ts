@@ -346,21 +346,30 @@ export function assertDeploymentShape<T>(data: T): asserts data is T & Record<st
 /** Shape any error into a clean, client-safe string. */
 export function formatToolError(err: unknown, config?: VercelConfig): string {
   let msg: string;
+  let hint = "";
   if (err instanceof ConfigError) {
     msg = `Configuration problem: ${err.message}`;
   } else if (err instanceof ApiError) {
-    const hint =
+    hint =
       err.status === 401 || err.status === 403
         ? " Check that the configured credential is valid and has access to this project or team."
         : err.status === 429
           ? " Rate limited by the Vercel API, so retry after a short wait."
           : "";
     const body = hint && err.message && !/[.!?]$/.test(err.message) ? `${err.message}.` : err.message;
-    msg = `Vercel API error (HTTP ${err.status}${err.code ? `, ${err.code}` : ""}): ${body}${hint}`;
+    msg = `Vercel API error (HTTP ${err.status}${err.code ? `, ${err.code}` : ""}): ${body}`;
   } else if (err instanceof Error) {
     msg = `Unexpected error: ${err.message}`;
   } else {
     msg = "Unexpected error.";
   }
-  return redactValues(msg, [config?.token, config?.teamId]).slice(0, MAX_ERROR_LEN);
+  // The hint is fixed text this file writes, so it carries nothing to redact and
+  // nothing an upstream message can hide inside. Room is reserved for it, and for
+  // the full stop in front of it, before the bound is applied to everything else,
+  // so a long upstream message pushes its own text out rather than the reader's
+  // next step.
+  const room = hint ? MAX_ERROR_LEN - hint.length - 1 : MAX_ERROR_LEN;
+  const bounded = redactValues(msg, [config?.token, config?.teamId]).slice(0, room);
+  if (!hint) return bounded;
+  return (/[.!?]$/.test(bounded) ? bounded : `${bounded}.`) + hint;
 }

@@ -28,6 +28,15 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   runs before the 500-character bound is applied, so a configured value
   that straddles the cut can no longer leave its first characters behind.
 
+- A long upstream message no longer pushes the credential or rate-limit
+  hint out of the error a client sees. The 500-character bound is applied
+  to the shaped message first and the hint is appended after it, so the
+  cut can no longer land inside the hint or remove it. This also names a
+  change that came with redacting once at the boundary: the separate
+  400-character cut that used to shorten an upstream message before the
+  two were composed is gone, so more of a long upstream message now
+  appears inside the same 500-character result.
+
 - Documentation: the credential statement in `README.md` now says the
   guarantee covers the error text the server composes, and that a
   successful result is a fixed projection of the upstream body that is not

@@ -10,7 +10,9 @@ Four files, run with vitest.
 - `test/vercel.test.ts`: the API client. Configuration handling, credential redaction
   (token and team id, applied once where an error becomes client-visible text, including an
   upstream message long enough that a configured value straddles the cut), error shaping and
-  the single 500-char bound on client-visible error text, rate-limit and auth hints,
+  the single 500-char bound on client-visible error text, which is applied to the shaped
+  message before the fixed hint is appended so a long upstream message cannot push the hint
+  out, rate-limit and auth hints,
   network failures, the 30-second request timeout, non-JSON error bodies,
   the hardcoded fallback for non-Error throws, the request throttle (minimum start-to-start
   spacing and the concurrency cap, both driven by an injected fake clock/sleep, no
