@@ -182,7 +182,7 @@ describe("stdio era negotiation", () => {
 
         for (const line of stdoutLines) expect(JSON.parse(line).jsonrpc).toBe("2.0");
         // Exact, on both lines. The id 3 frame above is a 2025 initialize on a connection
-        // already pinned to 2026-07-28, which is the transport error this card reports.
+        // already pinned to 2026-07-28, which is the refusal the reporter writes a line for.
         // stderr is the banner and exactly one reporter line, in that order, and nothing
         // else: no stack, no second line, no repeat.
         await waitForStderr(() => stderrBuffer, BANNER + ERA_REFUSAL_LINE, 5_000);
