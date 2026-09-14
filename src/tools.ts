@@ -26,6 +26,9 @@ const READ_ONLY_ANNOTATIONS = {
   openWorldHint: true,
 } satisfies ToolAnnotations;
 
+const MAX_IDENTIFIER_LEN = 512;
+const MAX_SEARCH_LEN = 4096;
+
 const ProjectResultSchema = z.strictObject({
   id: z.string(),
   name: z.string(),
@@ -145,7 +148,12 @@ export function registerTools(server: McpServer): void {
       inputSchema: {
         // A blank string previously fell through isApplied() as "filter not applied",
         // silently widening scope. Reject it at the schema boundary instead.
-        search: z.string().min(1).optional().describe("Filter projects by name"),
+        search: z
+          .string()
+          .min(1)
+          .max(MAX_SEARCH_LEN)
+          .optional()
+          .describe("Filter projects by name"),
         limit: z.number().int().min(1).max(100).optional().describe("Max results (default 20)"),
       },
       outputSchema: ListProjectsOutputSchema,
@@ -182,7 +190,11 @@ export function registerTools(server: McpServer): void {
       title: "Get a Vercel project",
       description: "Fetch one project by ID or name.",
       inputSchema: {
-        idOrName: z.string().min(1).describe("Project ID or project name"),
+        idOrName: z
+          .string()
+          .min(1)
+          .max(MAX_IDENTIFIER_LEN)
+          .describe("Project ID or project name"),
       },
       outputSchema: GetProjectOutputSchema,
       annotations: READ_ONLY_ANNOTATIONS,
@@ -218,8 +230,18 @@ export function registerTools(server: McpServer): void {
         "List recent deployments, optionally filtered by project ID and state (e.g. BUILDING, ERROR, READY).",
       inputSchema: {
         // See the search field above: blank optional filters are rejected, not silently ignored.
-        projectId: z.string().min(1).optional().describe("Limit to one project"),
-        state: z.string().min(1).optional().describe("Comma-separated states, e.g. READY,ERROR"),
+        projectId: z
+          .string()
+          .min(1)
+          .max(MAX_IDENTIFIER_LEN)
+          .optional()
+          .describe("Limit to one project"),
+        state: z
+          .string()
+          .min(1)
+          .max(MAX_IDENTIFIER_LEN)
+          .optional()
+          .describe("Comma-separated states, e.g. READY,ERROR"),
         limit: z.number().int().min(1).max(100).optional().describe("Max results (default 20)"),
       },
       outputSchema: ListDeploymentsOutputSchema,
@@ -271,7 +293,11 @@ export function registerTools(server: McpServer): void {
       title: "Get a deployment",
       description: "Fetch one deployment by ID or URL, including its current state.",
       inputSchema: {
-        idOrUrl: z.string().min(1).describe("Deployment ID (dpl_…) or deployment URL"),
+        idOrUrl: z
+          .string()
+          .min(1)
+          .max(MAX_IDENTIFIER_LEN)
+          .describe("Deployment ID (dpl_…) or deployment URL"),
       },
       outputSchema: GetDeploymentOutputSchema,
       annotations: READ_ONLY_ANNOTATIONS,

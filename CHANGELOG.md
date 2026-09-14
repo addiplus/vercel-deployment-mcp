@@ -30,6 +30,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   sent before the handshake was served, and the request left for the
   Vercel API carrying the configured token.
 
+- String tool arguments now declare a maximum length: 4096 characters for
+  `search`, and 512 characters for `projectId`, `state`, `idOrName` and
+  `idOrUrl`. The published input schemas carry the bound, so an over-long
+  value is refused as invalid input instead of being composed into an
+  outbound URL.
+
 - A protocol frame larger than 10485760 bytes is dropped, one line on
   stderr says so, and the connection keeps serving. There was no limit at
   all before, so a peer that never sent a newline grew the process without

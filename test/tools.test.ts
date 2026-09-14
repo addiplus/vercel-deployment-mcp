@@ -471,6 +471,40 @@ describe("blank optional filters are rejected at the schema boundary", () => {
   });
 });
 
+describe("string arguments are bounded above as well as below", () => {
+  it("accepts a search at the limit and rejects one character more", () => {
+    const schema = z.object(getTools().get("list_projects")!.meta.inputSchema);
+    expect(schema.safeParse({ search: "x".repeat(4096) }).success).toBe(true);
+    expect(schema.safeParse({ search: "x".repeat(4097) }).success).toBe(false);
+  });
+
+  it("accepts an identifier at the limit and rejects one character more", () => {
+    const cases: Array<[string, string]> = [
+      ["get_project", "idOrName"],
+      ["get_deployment", "idOrUrl"],
+      ["list_deployments", "projectId"],
+      ["list_deployments", "state"],
+    ];
+    for (const [tool, field] of cases) {
+      const schema = z.object(getTools().get(tool)!.meta.inputSchema);
+      expect(schema.safeParse({ [field]: "x".repeat(512) }).success, `${tool}.${field}`).toBe(true);
+      expect(schema.safeParse({ [field]: "x".repeat(513) }).success, `${tool}.${field}`).toBe(false);
+    }
+  });
+
+  it("publishes the length bounds in the input schema", () => {
+    const published = (tool: string) =>
+      z.toJSONSchema(z.object(getTools().get(tool)!.meta.inputSchema), { io: "input" }) as {
+        properties: Record<string, { maxLength?: number }>;
+      };
+    expect(published("list_projects").properties.search.maxLength).toBe(4096);
+    expect(published("get_project").properties.idOrName.maxLength).toBe(512);
+    expect(published("get_deployment").properties.idOrUrl.maxLength).toBe(512);
+    expect(published("list_deployments").properties.projectId.maxLength).toBe(512);
+    expect(published("list_deployments").properties.state.maxLength).toBe(512);
+  });
+});
+
 describe("receipt.appliedFilters for valid filters", () => {
   it("list_projects records search once applied", async () => {
     const tools = getTools();
