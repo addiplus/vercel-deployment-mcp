@@ -15,7 +15,7 @@ import { getConfig, redactValues, type VercelConfig } from "./vercel.js";
 
 const server = new McpServer({
   name: "vercel-deployment-mcp",
-  version: "0.2.0",
+  version: "0.2.1",
 });
 
 registerTools(server);

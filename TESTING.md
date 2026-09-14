@@ -3,6 +3,14 @@
 How this server is validated. Everything below is reproducible from a clean clone with
 `npm install && npm test` (the test script builds first).
 
+Running the suite needs a newer Node than the server does. vitest 4.1.10 declares
+`engines.node` of `^20.0.0 || ^22.0.0 || >=24.0.0`, and the vite 8.1.3 this
+lockfile pins narrows that to `^20.19.0 || >=22.12.0`. The suite runs on the
+intersection of the two, `^20.19.0 || ^22.12.0 || >=24.0.0`: the 20 line from
+20.19.0, the 22 line from 22.12.0, and 24 and above. The 23 line is outside it,
+because vitest does not cover 23. The published package itself still runs on
+Node >=18 per `engines`.
+
 ## Test suite
 
 Four files, run with vitest.
@@ -61,7 +69,11 @@ Four files, run with vitest.
   argument produces a JSON-RPC `-32602` invalid-params result, whether the SDK returns it
   as a top-level error or a shaped tool error; every stdout line is a JSON-RPC frame; the
   startup banner goes to stderr and never to stdout; and no tool-call response frame (the
-  successful calls and the 403 error) contains the configured token or team id.
+  successful calls and the 403 error) contains the configured token or team id. The same
+  file also carries one static check that spawns nothing: `server.json`, the registry
+  manifest, is not part of the npm tarball and is read nowhere else in the suite, so its
+  top-level `version`, its package entry's `version`, and that entry's `identifier` are
+  asserted against `package.json`'s `version` and `name`.
 - `test/suite/protocol.test.ts`: the built server as a black box, at the transport and
   handshake boundary. A tool request sent before the initialization handshake completes is
   refused with JSON-RPC `-32600` and no upstream request is made for it, while `ping` is

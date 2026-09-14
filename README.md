@@ -49,8 +49,13 @@ npm run build
 npm test
 ```
 
-Building and testing this repo requires Node 22+ (CI runs 22 and 24); the
-published package runs on Node >=18 per `engines`.
+Running the test suite needs a newer Node than the server does. vitest 4.1.10
+declares `engines.node` of `^20.0.0 || ^22.0.0 || >=24.0.0`, and the vite 8.1.3
+this lockfile pins narrows that to `^20.19.0 || >=22.12.0`. The suite runs on
+the intersection of the two, `^20.19.0 || ^22.12.0 || >=24.0.0`: the 20 line
+from 20.19.0, the 22 line from 22.12.0, and 24 and above. The 23 line is
+outside it, because vitest does not cover 23. CI runs 22 and 24. The published
+package itself still runs on Node >=18 per `engines`.
 
 ## Configuration
 

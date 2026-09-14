@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-14
+
 ### Security
 
 - Redaction of the configured token and team id in error text replaced
@@ -169,6 +171,7 @@ Initial release.
 - Test suite covering the above (35 tests), run on Linux and Windows against
   Node 22 and 24 in CI.
 
-[Unreleased]: https://github.com/addiplus/vercel-deployment-mcp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/addiplus/vercel-deployment-mcp/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/addiplus/vercel-deployment-mcp/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/addiplus/vercel-deployment-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/addiplus/vercel-deployment-mcp/releases/tag/v0.1.0
