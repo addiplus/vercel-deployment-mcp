@@ -14,14 +14,16 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   callback; the server now supplies one, which writes
   `vercel-deployment-mcp transport error: <message>`: a single line with
   whitespace collapsed, the configured token and team id replaced with
-  `[redacted]`, cut to 400 characters, and never a stack or the error
+  `[redacted]`, the message cut to 400 characters (so the line is at most
+  that plus its 39-character prefix), and never a stack or the error
   object. Commit `6b0b39e`, which moved stdio onto `serveStdio`, recorded
   this silence as a known gap in its own message; this closes it. stdout is
   unchanged, and the stderr contract's two files, `test/stdio-purity.test.ts`
   and `test/stdio-era.test.ts`, now assert the whole of stderr rather than a
   substring, so a diagnostic appearing on a quiet path fails the suite.
-- CI now runs the build, the test suite and the packed-consumer smoke on
-  Node 20 as well as 22 and 24, in both matrices. `engines.node` has said
+- CI now covers Node 20 as well as 22 and 24 in both matrices: the test job
+  runs the build and the suite, the packed-consumer job runs the build and
+  the packed-consumer smoke. `engines.node` has said
   `>=20` since the 2.0 SDK line landed; until now nothing exercised the
   floor it declares, so the floor was a claim rather than a result.
 
