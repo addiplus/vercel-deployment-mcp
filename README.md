@@ -77,12 +77,16 @@ surfaced as an error on the first attempt.
 A value above one of these limits is refused rather than trimmed: an over-long
 argument fails input validation, a frame above the frame limit is dropped with
 one line on stderr and the connection keeps serving, and an interval above the
-ceiling is reduced to the ceiling with one line on stderr.
+ceiling is reduced to the ceiling with one line on stderr. The same stderr
+report repeated back to back is written twice at most, the second time to say
+that further identical reports are suppressed.
 
 `initialize` and `ping` are answered at any time. `tools/list` and `tools/call`
-are answered only once the client has completed the initialization handshake;
-before that they are refused with JSON-RPC error `-32600` and no Vercel API
-request is made.
+are answered only once the client has completed the initialization handshake:
+an `initialize` request the server has answered, followed by
+`notifications/initialized`. Both halves are required, so the notification on
+its own completes nothing. Before that, those two methods are refused with
+JSON-RPC error `-32600` and no Vercel API request is made.
 
 Example client configuration (Claude Desktop / Claude Code):
 
@@ -103,7 +107,9 @@ When running from a source checkout, use `"command": "node"` with
 
 ## Design principles
 
-Dated 2026-07-10. Each claim below is implemented in code and verified by the
+First written 2026-07-10 and kept current with the code since; claim 1 was
+restated when error text began being redacted once, where it becomes
+client-visible. Each claim below is implemented in code and verified by the
 test suite where testable (`test/`); design properties cite the implementing
 code.
 
@@ -111,7 +117,9 @@ code.
    only from the environment. Error text is shaped, size-bounded, and passed
    through a redaction guard once, where it becomes client-visible text, so
    an upstream API message cannot echo the token or the team id back
-   (`src/vercel.ts`). A successful result is a fixed projection of the
+   (`src/vercel.ts`); the fixed hint appended after that bound is text this
+   server writes and carries nothing to replace. A successful result is a fixed
+   projection of the
    upstream body and is not redacted, so a team identifier that the Vercel
    API itself returns inside a deployment URL still appears there.
 2. **stdout belongs to the protocol.** All diagnostics go to stderr

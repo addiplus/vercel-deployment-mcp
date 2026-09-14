@@ -86,8 +86,10 @@ Four files, run with vitest.
 - End-to-end against the live Vercel API from a real stdio client: all four tools return
   correct live data; diagnostics stay on stderr.
 - Memory check, run by hand rather than in the suite because the reading is not portable:
-  write 256 MB to stdin with no newline and watch resident memory stay flat while one line
-  on stderr reports the dropped frame.
+  write 256 MB to stdin with no newline and watch resident memory rise over the first
+  hundred megabytes or so and then stop, well short of tracking the input, while one line on
+  stderr reports the dropped frame. A sample run here went from 85 MB before the write to
+  160 MB after 200 MB of input, with the last 60 MB of input adding 2 MB.
 - CI runs build + tests on ubuntu-latest and windows-latest with Node 22 and 24.
 
 ## Notes
