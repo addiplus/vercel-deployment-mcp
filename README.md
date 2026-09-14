@@ -93,7 +93,10 @@ over-long argument fails input validation: the call comes back as a tool result
 carrying `isError: true` whose text reports the validation failure, no Vercel
 API request is made, and nothing is written to stderr for it. A frame above the
 frame limit is dropped, one line on stderr says so, and the connection keeps
-serving. An interval above the ceiling is not refused, it is reduced to the
+serving; the request inside that frame is never answered, because the id is not
+recoverable from a message that was refused before it was parsed, so a client
+waiting on that id waits for its own timeout while later requests are answered
+normally. An interval above the ceiling is not refused, it is reduced to the
 ceiling: the server runs with the reduced value, and one line on stderr says so
 the first time it makes a Vercel API request. The same stderr report repeated
 back to back is written twice at most, the second time to say that further

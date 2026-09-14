@@ -180,7 +180,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   status 70 behind rather than 0, which covers a close the message limit does
   not prevent. With that limit in place a peer cannot provoke one, since the
   reader hands the transport no more than its buffer holds, so an ordinary
-  session still ends with status 0 and no case in the suite reaches 70.
+  session still ends with status 0 and no case in the suite reaches 70. A
+  dropped message is not answered on the protocol channel: the id inside it
+  is not recoverable from a message refused before it was parsed, so a client
+  waiting on that id waits for its own timeout while every later request is
+  answered as usual.
 
 - There is now a bound on how many lines a transport failure can write to
   stderr. A report repeated back to back is written twice at most, as
